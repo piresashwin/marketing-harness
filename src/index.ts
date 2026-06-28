@@ -3,11 +3,18 @@ import path from "node:path";
 import express from "express";
 import cookieParser from "cookie-parser";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import {
+  mcpAuthRouter,
+  getOAuthProtectedResourceMetadataUrl,
+} from "@modelcontextprotocol/sdk/server/auth/router.js";
+import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js";
 import { env } from "./config/env.js";
 import { runMigrations } from "./db/index.js";
 import { mediaStore } from "./connectors/media/index.js";
 import { createMcpServer } from "./mcp/server.js";
 import { oauthRouter } from "./http/oauth.js";
+import { oauthConsentRouter } from "./http/oauth-consent.js";
+import { oauthProvider } from "./mcp/oauth/provider.js";
 import { authRouter } from "./auth/routes.js";
 import { apiRouter } from "./api/routes.js";
 
@@ -26,6 +33,21 @@ async function main() {
   app.use("/api", apiRouter);
   app.use(oauthRouter);
 
+  // ── MCP OAuth 2.1 authorization server (the harness is its own AS) ────
+  // Mounts /.well-known/oauth-authorization-server + protected-resource metadata,
+  // /authorize, /token, /register, /revoke. The consent route binds the user.
+  const mcpResourceUrl = new URL(`${env.publicBaseUrl}/mcp`);
+  app.use(oauthConsentRouter);
+  app.use(
+    mcpAuthRouter({
+      provider: oauthProvider,
+      issuerUrl: new URL(env.publicBaseUrl),
+      resourceServerUrl: mcpResourceUrl,
+      scopesSupported: ["mcp"],
+      resourceName: "marketing-harness",
+    }),
+  );
+
   // Serve local media when MEDIA_STORE=local.
   if (mediaStore.kind === "local") {
     const { LocalMediaStore } = await import("./connectors/media/local.js");
@@ -36,8 +58,14 @@ async function main() {
   }
 
   // ── MCP over Streamable HTTP (stateless: one server per request) ──────
-  app.post("/mcp", async (req, res) => {
-    const server = createMcpServer();
+  // Protected by OAuth 2.1 bearer auth; the verified user id scopes the tools.
+  const bearer = requireBearerAuth({
+    verifier: oauthProvider,
+    resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpResourceUrl),
+  });
+  app.post("/mcp", bearer, async (req, res) => {
+    const userId = req.auth!.extra!.userId as number;
+    const server = createMcpServer(userId);
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
     });

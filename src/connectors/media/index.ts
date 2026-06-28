@@ -17,8 +17,15 @@ export const mediaStore: MediaStore =
  * Resolves a MediaInput to a public URL Instagram can fetch.
  * - `url`: returned as-is (assumed already public).
  * - `path`/`base64`: uploaded to the MediaStore, public URL returned.
+ *
+ * `brandId` is the VERIFIED owning brand (from server-side context, never client
+ * input); it namespaces stored objects under `brands/<brandId>/...` for
+ * defense-in-depth + lifecycle scoping.
  */
-export async function resolveToPublicUrl(input: MediaInput): Promise<string> {
+export async function resolveToPublicUrl(
+  input: MediaInput,
+  brandId: number,
+): Promise<string> {
   if (input.url) return input.url;
 
   let body: Buffer;
@@ -34,7 +41,8 @@ export async function resolveToPublicUrl(input: MediaInput): Promise<string> {
   }
 
   const ext = extFromContentType(contentType);
-  const key = `media/${new Date().toISOString().slice(0, 10)}/${randomUUID()}.${ext}`;
+  const date = new Date().toISOString().slice(0, 10);
+  const key = `brands/${brandId}/${date}/${randomUUID()}.${ext}`;
   const { url } = await mediaStore.put(key, body, contentType);
   return url;
 }

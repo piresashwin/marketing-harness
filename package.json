@@ -9,9 +9,12 @@
     "dev:all": "concurrently -n api,web -c blue,magenta \"npm:dev\" \"npm:dev --prefix web\"",
     "build": "tsc -p tsconfig.json && npm run build --prefix web",
     "start": "node dist/index.js",
+    "migrate": "tsx src/db/migrate.ts",
+    "reencrypt": "tsx src/crypto/reencrypt.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.106.0",
     "@aws-sdk/client-s3": "^3.668.0",
     "@modelcontextprotocol/sdk": "^1.12.0",
     "cookie-parser": "^1.4.7",

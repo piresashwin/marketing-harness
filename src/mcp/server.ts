@@ -1,20 +1,51 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { pool } from "../db/index.js";
 import { instagram } from "../connectors/instagram/index.js";
+import { generateCaption } from "../connectors/anthropic/index.js";
 import { env } from "../config/env.js";
 
-const USER_KEY_DESC =
-  "Logical harness user this account belongs to. Use 'default' for a single-user setup.";
+// MCP tools are reached over POST /mcp, which is now protected by OAuth 2.1
+// bearer auth (see requireBearerAuth in src/index.ts). The authenticated user id
+// is threaded into createMcpServer(userId), and every brand-scoped tool calls
+// assertBrandOwned() FIRST — the same ownership predicate as the REST
+// `requireBrand` middleware. brand_id from the caller is therefore never trusted
+// blindly; it must belong to a workspace the authenticated user is a member of.
+const BRAND_ID_DESC =
+  "Brand id (tenant scope). Must belong to your workspace; use list_brands to discover ids.";
 
 function json(data: unknown) {
   return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
 }
 
-function fail(message: string) {
+// Sanitized tool error. We do NOT forward raw provider/internal error text to the
+// agent — known causes map to a small enumerated set; everything else is generic.
+// Detail is kept server-side via console.error (name only, no token/PII).
+class ToolForbiddenError extends Error {}
+
+function fail(e: unknown) {
+  if (e instanceof ToolForbiddenError) {
+    return {
+      isError: true,
+      content: [{ type: "text" as const, text: "Error: forbidden — not your brand" }],
+    };
+  }
+  console.error("[mcp] tool error:", (e as Error).name);
   return {
     isError: true,
-    content: [{ type: "text" as const, text: `Error: ${message}` }],
+    content: [{ type: "text" as const, text: "Error: tool failed" }],
   };
+}
+
+/** Ownership check mirroring REST requireBrand. Throws if the user can't access it. */
+async function assertBrandOwned(userId: number, brandId: number): Promise<void> {
+  const { rowCount } = await pool.query(
+    `SELECT 1 FROM brands b
+       JOIN workspace_members wm ON wm.workspace_id = b.workspace_id
+      WHERE b.id = $1 AND wm.user_id = $2`,
+    [brandId, userId],
+  );
+  if (!rowCount) throw new ToolForbiddenError("forbidden");
 }
 
 const mediaShape = {
@@ -24,12 +55,38 @@ const mediaShape = {
   contentType: z.string().optional().describe("e.g. image/jpeg"),
 };
 
-/** Builds a fresh MCP server with all harness tools registered. */
-export function createMcpServer(): McpServer {
+/**
+ * Builds a fresh MCP server scoped to the authenticated user. All tenant tools
+ * are ownership-checked against this userId.
+ */
+export function createMcpServer(userId: number): McpServer {
   const server = new McpServer({
     name: "marketing-harness",
     version: "0.1.0",
   });
+
+  server.registerTool(
+    "list_brands",
+    {
+      title: "List your brands",
+      description:
+        "Returns the brands you can access (id + name), for use as brand_id in other tools.",
+      inputSchema: {},
+    },
+    async () => {
+      try {
+        const { rows } = await pool.query<{ id: number; name: string }>(
+          `SELECT b.id, b.name FROM brands b
+             JOIN workspace_members wm ON wm.workspace_id = b.workspace_id
+            WHERE wm.user_id = $1 ORDER BY b.id`,
+          [userId],
+        );
+        return json({ brands: rows });
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
 
   server.registerTool(
     "ig_get_connect_url",
@@ -38,19 +95,20 @@ export function createMcpServer(): McpServer {
       description:
         "Returns a URL the user opens in a browser to connect their Instagram Business/Creator account via OAuth.",
       inputSchema: {
-        user_key: z.string().default("default").describe(USER_KEY_DESC),
+        brand_id: z.number().int().describe(BRAND_ID_DESC),
       },
     },
-    async ({ user_key }) => {
+    async ({ brand_id }) => {
       try {
-        const url = await instagram.getConnectUrl(user_key);
+        await assertBrandOwned(userId, brand_id);
+        const url = await instagram.getConnectUrl(brand_id);
         return json({
           connect_url: url,
           instructions:
             "Open this URL in a browser, authorize, and you'll be redirected back to the harness.",
         });
       } catch (e) {
-        return fail((e as Error).message);
+        return fail(e);
       }
     },
   );
@@ -60,16 +118,17 @@ export function createMcpServer(): McpServer {
     {
       title: "Instagram connection status",
       description:
-        "Reports whether an Instagram account is connected for the given user, with username and token expiry.",
+        "Reports whether an Instagram account is connected for the given brand, with username and token expiry.",
       inputSchema: {
-        user_key: z.string().default("default").describe(USER_KEY_DESC),
+        brand_id: z.number().int().describe(BRAND_ID_DESC),
       },
     },
-    async ({ user_key }) => {
+    async ({ brand_id }) => {
       try {
-        return json(await instagram.status(user_key));
+        await assertBrandOwned(userId, brand_id);
+        return json(await instagram.status(brand_id));
       } catch (e) {
-        return fail((e as Error).message);
+        return fail(e);
       }
     },
   );
@@ -81,21 +140,22 @@ export function createMcpServer(): McpServer {
       description:
         "Publishes a single image post. Provide exactly one of url/path/base64. Returns the published media id and permalink.",
       inputSchema: {
-        user_key: z.string().default("default").describe(USER_KEY_DESC),
+        brand_id: z.number().int().describe(BRAND_ID_DESC),
         caption: z.string().optional(),
         ...mediaShape,
       },
     },
-    async ({ user_key, caption, url, path, base64, contentType }) => {
+    async ({ brand_id, caption, url, path, base64, contentType }) => {
       try {
+        await assertBrandOwned(userId, brand_id);
         const result = await instagram.publishImage(
-          user_key,
+          brand_id,
           { url, path, base64, contentType },
           caption,
         );
         return json(result);
       } catch (e) {
-        return fail((e as Error).message);
+        return fail(e);
       }
     },
   );
@@ -107,7 +167,7 @@ export function createMcpServer(): McpServer {
       description:
         "Publishes a carousel (2–10 images). Each item is one media object (url/path/base64).",
       inputSchema: {
-        user_key: z.string().default("default").describe(USER_KEY_DESC),
+        brand_id: z.number().int().describe(BRAND_ID_DESC),
         caption: z.string().optional(),
         images: z
           .array(z.object(mediaShape))
@@ -116,12 +176,35 @@ export function createMcpServer(): McpServer {
           .describe("2–10 media items"),
       },
     },
-    async ({ user_key, caption, images }) => {
+    async ({ brand_id, caption, images }) => {
       try {
-        const result = await instagram.publishCarousel(user_key, images, caption);
+        await assertBrandOwned(userId, brand_id);
+        const result = await instagram.publishCarousel(brand_id, images, caption);
         return json(result);
       } catch (e) {
-        return fail((e as Error).message);
+        return fail(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "generate_caption",
+    {
+      title: "Generate a marketing caption",
+      description:
+        "Generates a platform-appropriate marketing caption in the brand's voice using the workspace's BYO Claude key. Spends the workspace's Claude credits.",
+      inputSchema: {
+        brand_id: z.number().int().describe(BRAND_ID_DESC),
+        prompt: z.string().optional().describe("Topic / what the post is about"),
+        platform: z.string().optional().describe("e.g. instagram, tiktok"),
+      },
+    },
+    async ({ brand_id, prompt, platform }) => {
+      try {
+        await assertBrandOwned(userId, brand_id);
+        return json(await generateCaption(brand_id, { prompt, platform }));
+      } catch (e) {
+        return fail(e);
       }
     },
   );

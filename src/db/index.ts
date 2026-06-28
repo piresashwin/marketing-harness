@@ -22,7 +22,11 @@ export async function runMigrations(): Promise<void> {
       if (applied.has(m.id)) continue;
       await client.query("BEGIN");
       try {
-        await client.query(m.sql);
+        if (m.sql !== undefined) {
+          await client.query(m.sql);
+        } else {
+          await m.run(client);
+        }
         await client.query(
           "INSERT INTO _migrations (id, name) VALUES ($1, $2)",
           [m.id, m.name],

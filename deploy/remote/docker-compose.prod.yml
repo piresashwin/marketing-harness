@@ -1,0 +1,79 @@
+# Production stack for inflxr.com — a SINGLE container.
+# Run from $DEPLOY_PATH on the droplet (deploy.sh does this):
+#   docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+#
+# One process (src/index.ts) serves the REST API, the MCP endpoint (/mcp), magic-
+# link auth, connector OAuth callbacks, /media, /healthz, AND the built Vite SPA
+# from web/dist. There is no separate web/api/worker split — hence one service.
+#
+# SHARED infrastructure (NOT in this stack — owned by tradex on the same droplet):
+#   - Postgres: inflxr-app connects to tradex's `tradex-postgres` container over
+#     the `edge` net, to a SEPARATE `inflxr` database + role inside it. The DB URL
+#     host is the CONTAINER NAME `tradex-postgres` (reachable over edge).
+#   - TLS + reverse proxy: the shared tradex nginx fronts inflxr.com; inflxr-app
+#     joins `edge` so it can reach it by container name. See deploy/README.md.
+#   - Object storage: media lives in external S3/R2 (MEDIA_STORE=s3), served from
+#     a PUBLIC bucket URL so Instagram can fetch it — no stateful volume here.
+
+services:
+  # Service key is inflxr-PREFIXED (NOT bare app/web/api): docker registers the
+  # SERVICE NAME as a network alias on every attached net, including the SHARED
+  # `edge`. A bare alias would collide with a sibling stack's upstreams. The prefix
+  # keeps the only edge alias `inflxr-app`. container_name stays for the vhost.
+  inflxr-app:
+    build:
+      context: ./release
+      dockerfile: ../Dockerfile
+    container_name: inflxr-app
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 8787
+      # Public origin — Instagram fetches the OAuth redirect + media over the
+      # public internet, so this MUST be the real https origin (CLAUDE.md §5).
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
+      # SPA is served same-origin in prod; the auth flow redirects here.
+      APP_BASE_URL: ${APP_BASE_URL}
+      # → tradex-postgres over edge, separate `inflxr` database + role.
+      DATABASE_URL: ${DATABASE_URL}
+      # AES-256-GCM key for encryption-at-rest (connector secrets + OAuth tokens).
+      APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY}
+      # Magic-link email (Resend).
+      RESEND_API_KEY: ${RESEND_API_KEY}
+      RESEND_FROM: ${RESEND_FROM}
+      # Instagram connector (central Meta app).
+      IG_CLIENT_ID: ${IG_CLIENT_ID}
+      IG_CLIENT_SECRET: ${IG_CLIENT_SECRET}
+      IG_REDIRECT_URI: ${IG_REDIRECT_URI}
+      IG_GRAPH_VERSION: ${IG_GRAPH_VERSION}
+      # Media store — S3/R2 (public bucket; Instagram fetches media from here).
+      MEDIA_STORE: ${MEDIA_STORE}
+      S3_ENDPOINT: ${S3_ENDPOINT}
+      S3_REGION: ${S3_REGION}
+      S3_BUCKET: ${S3_BUCKET}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE}
+      S3_PUBLIC_BASE_URL: ${S3_PUBLIC_BASE_URL}
+    # No `depends_on` for the DB — Postgres is the external tradex-postgres
+    # container, not a service here. runMigrations() retries on boot if it's
+    # briefly unreachable.
+    # `edge` = shared net to reach tradex-nginx (proxy) and tradex-postgres (DB).
+    networks: [edge]
+
+# NO nginx / certbot / postgres here by design — all three are the shared tradex
+# services on this droplet. inflxr registers a vhost by dropping
+# nginx-vhosts/inflxr.com.conf into /srv/nginx-vhosts (mounted into the tradex
+# nginx) and its cert is issued by the shared certbot. See deploy/deploy.sh.
+
+networks:
+  # Shared network owned by the tradex stack. Created once on the droplet
+  # (`docker network create edge`); declared external so this stack joins it.
+  # Carries both the proxy (tradex-nginx → inflxr-app) and the DB (→ tradex-postgres).
+  edge:
+    external: true
+    name: edge
+
+# No volumes — inflxr owns no stateful container. Its data lives in the shared
+# tradex-postgres instance (separate `inflxr` database) and in external object
+# storage (S3/R2).

@@ -3,3 +3,9 @@ dist/
 .env
 *.log
 .media/
+
+# Deploy pipeline (deploy/) — local-only build snapshot + populated config
+release/
+release.prev/
+deploy/.env.deploy
+deploy/remote/.env.production

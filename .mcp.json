@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "higgsfield": {
+      "type": "http",
+      "url": "https://mcp.higgsfield.ai/mcp"
+    },
+    "marketing-harness": {
+      "type": "http",
+      "url": "http://localhost:8787/mcp"
+    }
+  }
+}

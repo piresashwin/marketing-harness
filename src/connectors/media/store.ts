@@ -10,6 +10,8 @@ export interface MediaStore {
   put(key: string, body: Buffer, contentType: string): Promise<PutResult>;
   /** Called once at startup to provision buckets/dirs. */
   init(): Promise<void>;
+  /** Deletes all objects under a key prefix (e.g. "brands/<id>/"). */
+  deletePrefix(prefix: string): Promise<void>;
 }
 
 const EXT_TO_CT: Record<string, string> = {

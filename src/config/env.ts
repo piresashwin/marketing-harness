@@ -22,6 +22,14 @@ export const env = {
 
   databaseUrl: required("DATABASE_URL"),
 
+  // AES-256-GCM key for encryption-at-rest (32 bytes, hex => 64 chars).
+  // Required by the crypto helper, but not at app import: encrypt()/decrypt()
+  // surface a clear error if it's missing/wrong length when actually used.
+  appEncryptionKey: process.env.APP_ENCRYPTION_KEY || "",
+  // Optional previous key, used ONLY for decrypt fallback during rotation.
+  // encrypt() always uses the primary key. Remove after `npm run reencrypt`.
+  appEncryptionKeyOld: process.env.APP_ENCRYPTION_KEY_OLD || "",
+
   email: {
     resendApiKey: process.env.RESEND_API_KEY || "",
     from: optional("RESEND_FROM", "Marketing Harness <onboarding@resend.dev>"),

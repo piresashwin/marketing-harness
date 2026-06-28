@@ -19,8 +19,12 @@ export async function sendMagicLinkEmail(
   link: string,
 ): Promise<{ delivered: boolean; devLink?: string }> {
   if (!env.email.resendApiKey) {
-    console.log(`\n[auth] Magic link for ${to}:\n  ${link}\n`);
-    return { delivered: false, devLink: env.isProd ? undefined : link };
+    // Dev fallback only — never in prod, and never log the recipient email (PII).
+    if (!env.isProd) {
+      console.log(`\n[auth] Magic link (dev):\n  ${link}\n`);
+      return { delivered: false, devLink: link };
+    }
+    return { delivered: false };
   }
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
@@ -36,7 +40,9 @@ export async function sendMagicLinkEmail(
     }),
   });
   if (!res.ok) {
-    throw new Error(`Resend error ${res.status}: ${await res.text()}`);
+    // Never surface the raw provider body (may echo recipient/PII). Status only.
+    console.error("[email] resend send failed:", res.status);
+    throw new Error("email send failed");
   }
   return { delivered: true };
 }

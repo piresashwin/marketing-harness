@@ -1,0 +1,153 @@
+# CLAUDE.md — marketing-harness
+
+A **BYOK** (bring-your-own-keys) marketing automation tool. It is a *harness*: the
+user supplies their own provider keys (LLM, image/video gen, Instagram). It exposes
+an **MCP server** so Claude / other MCP clients can drive marketing workflows, plus
+a **web UI** for humans. Everything is a **connector**.
+
+Origin goal: stop manually moving Instagram content desktop→phone. The harness
+publishes server-side via the Instagram Content Publishing API (host media at a
+public URL → create container → publish), schedulable.
+
+## Stack & layout
+
+- **Backend** (`src/`): Node/TS + **Express**, also hosting an **MCP server** over
+  Streamable HTTP at `POST /mcp`. Entry: `src/index.ts`.
+- **Frontend** (`web/`): **Vite + React + Tailwind v4** SPA. Dev server proxies
+  `/api` and `/auth` to the backend (`web/vite.config.ts`).
+- **Database**: **Postgres via `pg`** (no ORM). Migrations are an ordered array in
+  `src/db/migrations.ts`, applied on boot by `runMigrations()` (`_migrations` table
+  tracks applied ids). Don't reach for Prisma — this project uses raw `pool.query`.
+- **Connectors** (`src/connectors/`): a uniform interface (`types.ts`) —
+  `instagram/` (OAuth + publish), `media/` (MediaStore: `s3` for S3/MinIO/R2, or
+  `local`). Workspace-level LLM (Claude) / image-gen (Higgsfield) connectors are
+  planned, not yet built.
+- **Auth** (`src/auth/`): passwordless **magic link** via **Resend**
+  (`src/email/resend.ts`), DB-backed cookie sessions.
+
+```
+src/
+  index.ts                 # Express + MCP entry, mounts routers, serves web/dist in prod
+  config/env.ts            # all env loading (single source)
+  db/{index.ts,migrations.ts}
+  auth/{routes,session,magicLink}.ts
+  email/resend.ts
+  api/routes.ts            # authed SPA REST API, mounted at /api
+  http/oauth.ts            # /connectors/instagram/{connect,callback}
+  mcp/server.ts            # MCP tool registrations
+  connectors/{types.ts, instagram/*, media/*}
+web/src/{App,auth,api,main}.tsx, pages/, index.css (@theme tokens)
+```
+
+## Commands
+
+- `npm run dev` — backend (port 8787, tsx watch).
+- `npm run dev --prefix web` — frontend (port 5173). Or `npm run dev:all` for both.
+- `npm run typecheck` (root) and `npm run typecheck --prefix web` — **run both before
+  handing back code.**
+- `npm run build` — compiles backend (`tsc`) + `web` (vite build).
+- Postgres: `docker exec -it marketing-harness-postgres psql -U harness -d marketing_harness`.
+
+## Invariants (non-negotiable)
+
+1. **Secrets at rest & in env.** Provider keys come from `process.env` via
+   `src/config/env.ts` — never hard-coded. Persisted OAuth tokens / connector
+   secrets must be encrypted before Postgres (AES-GCM helper). The `guard-secrets`
+   and `post-edit-pii-scan` hooks enforce this; don't fight them.
+2. **No PII / tokens in logs.** Log ids and counts, never user emails/profiles,
+   captions, or `access_token`/`refresh_token`/`client_secret`. Return **safe
+   enumerated** error messages to the client; log raw errors server-side only.
+3. **Uniform connector interface.** New providers implement `src/connectors/types.ts`
+   (`Connector` / `MediaStore`) so the MCP layer and (future) scheduler treat them
+   interchangeably. Don't special-case a provider in routing.
+4. **MCP + REST parity.** A capability exposed to humans (REST in `src/api`) and to
+   agents (MCP tool in `src/mcp`) calls the **same** connector method — don't fork
+   the logic.
+5. **Public media reality.** Instagram fetches the OAuth redirect *and* the media
+   over the public internet. Local dev therefore needs a **public HTTPS tunnel**
+   (`cloudflared tunnel --url http://localhost:8787`) with `PUBLIC_BASE_URL` and a
+   public media URL pointed at it. The tunnel hostname is **ephemeral** — on restart,
+   update `.env` *and* the Meta app's redirect URI.
+6. **Tenancy (incoming).** The app is moving to multi-tenant **Workspace → Brand →
+   Social accounts** (see Roadmap). Once built, every `pg` query on a tenant table
+   carries the `workspace_id`/`brand_id` predicate (app-layer only, no RLS backstop)
+   — run the `tenant-security-auditor` on anything touching tenant data.
+
+## Auth flow
+
+`POST /auth/request {email}` → Resend emails a link to `${PUBLIC_BASE_URL}/auth/verify`
+→ `GET /auth/verify?token` creates-or-finds the user, opens a cookie session, and
+redirects to `${APP_BASE_URL}` `/onboarding` (new) or `/dashboard` (onboarded). No
+separate registration. **Resend caveat:** with the shared `onboarding@resend.dev`
+sender, mail only delivers to your own Resend account email — verify a domain and set
+`RESEND_FROM` to send to anyone. Without a key, the link is logged + returned as a
+dev link.
+
+## Instagram connector
+
+Central **Meta app** model (you own one app; `IG_CLIENT_ID`/`SECRET` in env). It
+starts in **Development mode** → only Instagram accounts added as **Testers** (invite
+accepted at instagram.com/accounts/manage_access) can connect; public users need Meta
+**App Review** for `instagram_business_content_publish` + Business Verification. Uses
+the Instagram-Login Graph API (`graph.instagram.com`): OAuth → long-lived token
+(auto-refreshed) → `media` container → `media_publish`. Verified live (a real post
+published).
+
+## Frontend conventions
+
+- **Tailwind v4**; theme tokens in `web/src/index.css` under `@theme`. Brand ramp is
+  **indigo** (`brand-50/100/500/600/700`) on a slate canvas. Use named tokens, not
+  raw hex.
+- **Behaviour primitives = Radix (+ cmdk), styling = ours.** Dialogs/menus/popovers/
+  tooltips/focus-traps → `@radix-ui/react-*`; command palette / combobox → `cmdk`.
+  Wrap them behind `web/src/components/ui/` and skin with tokens — **never hand-roll**
+  a dialog or focus trap. (Deps installed.)
+- No icon-library dependency; inline SVG/emoji. No purple-gradient AI-slop.
+- No side effects in render bodies; paginate long lists; consume `web/src/api.ts`
+  (cookie session, `credentials: include`) rather than ad-hoc fetch.
+
+## Infra (dev)
+
+- Postgres (pgvector pg16) container `marketing-harness-postgres` on **:5433**, db
+  `marketing_harness`, user `harness`, volume `marketing-harness-pgdata`. `vector`
+  extension enabled (free optionality for embeddings).
+- A MinIO on :9000 exists on this machine (different project) — usable as an
+  S3-compatible MediaStore, but its objects aren't internet-reachable without a
+  tunnel; for real IG publishing use a public S3/R2 or tunnel the local store.
+
+## Claude Code setup (`.claude/`)
+
+- **Skills:** `higgsfield-prompting` (image/video gen via the Higgsfield MCP),
+  `viral-content`, `product-manager`. The latter two carry hiredesk-flavored example
+  bodies — retune per active brand.
+- **Agents:** `fullstack-developer`, `tailwind-developer`, `hook-designer`,
+  `pii-privacy-auditor`, `tenant-security-auditor`.
+- **Hooks:** `guard-secrets` (PreToolUse Bash, blocking), `post-edit-pii-scan` +
+  `post-edit-quality` (PostToolUse, warn-only).
+- **MCP** (`.mcp.json`): `higgsfield` (hosted) + `marketing-harness` (local /mcp).
+
+## Working with Claude / model defaults
+
+When writing code that calls Claude/Anthropic, **load the `claude-api` skill** — it
+holds current model ids and SDK patterns. Default model `claude-opus-4-8`. The
+in-app AI caption assist (`/api/ai/caption`) is currently a `501` stub awaiting the
+workspace-level LLM connector.
+
+## Roadmap / not yet built
+
+Current DB: `users`, `magic_link_tokens`, `sessions`, `profiles`, plus `ig_accounts`
+/ `posts` keyed by a flat `user_key`. **Next slice — multi-tenancy:** workspaces,
+`workspace_members`, brands, `brand_settings`, `content_pillars`, `social_accounts`
+(replacing `ig_accounts`), `brand_platform_settings`, `workspace_connectors`,
+`user_settings`; signup creates a workspace; refactor the IG connector from
+`user_key` to brand scope; add AES-GCM encryption-at-rest; header brand switcher.
+Then: scheduling/content calendar, and the Claude + Higgsfield connectors that make
+the AI-first dashboard real. The `tenant-security-auditor` agent already targets this
+model — apply it as the tables land.
+
+## Conventions
+
+- Match the surrounding code's style, naming, and structure. Make the change
+  requested; no speculative abstractions or error handling for impossible cases.
+- Confirm before destructive/outward-facing actions (dropping data, sending email to
+  real users, anything hard to reverse).

@@ -27,12 +27,23 @@ async function http<T>(url: string, init?: RequestInit): Promise<T> {
   try {
     json = text ? JSON.parse(text) : {};
   } catch {
-    throw new Error(`Instagram API non-JSON response (${res.status}): ${text}`);
+    // Never echo the raw body — Graph reflects the request URL (which carries
+    // the access_token) into some error bodies. Status only.
+    throw new Error(`Instagram API non-JSON response (status ${res.status})`);
   }
   if (!res.ok) {
-    const err = json as { error?: { message?: string } };
+    // Graph's structured human message ("Invalid OAuth access token") is safe
+    // and useful; the raw body is NOT. Use the parsed message only, with a
+    // generic fallback — no raw-body interpolation.
+    const err = json as {
+      error?: { message?: string; code?: number; type?: string };
+    };
+    const msg = err.error?.message;
+    const code = err.error?.code;
     throw new Error(
-      `Instagram API ${res.status}: ${err.error?.message ?? text}`,
+      msg
+        ? `Instagram API error (status ${res.status}): ${msg}`
+        : `Instagram API error (status ${res.status}${code != null ? `, code ${code}` : ""})`,
     );
   }
   return json as T;
