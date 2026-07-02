@@ -1,8 +1,9 @@
 import { Router, type Response, type NextFunction } from "express";
 import { z } from "zod";
 import { pool } from "../db/index.js";
+import { env } from "../config/env.js";
 import { requireAuth, clearSession, type AuthedRequest } from "../auth/session.js";
-import { instagram } from "../connectors/instagram/index.js";
+import { instagram, InsightsPermissionError } from "../connectors/instagram/index.js";
 import { generateCaption } from "../connectors/anthropic/index.js";
 import {
   listConnectors,
@@ -11,7 +12,21 @@ import {
   type WorkspaceProvider,
 } from "../connectors/workspace.js";
 import * as anthropic from "../connectors/anthropic/index.js";
+import {
+  fetchSiteSignal,
+  siteSignalToText,
+  type SiteExtractError,
+} from "../connectors/web-extract/index.js";
 import { mediaStore } from "../connectors/media/index.js";
+import {
+  submitForReview,
+  approvePost,
+  requestChanges,
+  addComment,
+  listComments,
+  listReviewQueue,
+} from "../posts/review.js";
+import { createReviewToken } from "../posts/clientPortal.js";
 
 export const apiRouter = Router();
 apiRouter.use(requireAuth());
@@ -129,7 +144,6 @@ apiRouter.get("/me", async (req: AuthedRequest, res) => {
     user: {
       id: user.id,
       email: user.email,
-      onboardingCompleted: user.onboarding_completed,
     },
     activeWorkspaceId: settings?.active_workspace_id ?? null,
     activeBrandId: settings?.active_brand_id ?? null,
@@ -145,6 +159,7 @@ apiRouter.get("/brands", async (req: AuthedRequest, res) => {
 });
 
 const brandSettingsSchema = z.object({
+  why: z.string().max(2000).optional(),
   description: z.string().max(4000).optional(),
   audience: z.string().max(4000).optional(),
   voice: z.record(z.unknown()).optional(),
@@ -197,10 +212,11 @@ apiRouter.post("/brands", async (req: AuthedRequest, res) => {
     );
     const brandId = brandRes.rows[0].id;
     await client.query(
-      `INSERT INTO brand_settings (brand_id, description, audience, voice, branding)
-       VALUES ($1, $2, $3, $4::jsonb, $5::jsonb)`,
+      `INSERT INTO brand_settings (brand_id, why, description, audience, voice, branding)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb)`,
       [
         brandId,
+        parsed.data.why ?? null,
         parsed.data.description ?? null,
         parsed.data.audience ?? null,
         JSON.stringify(parsed.data.voice ?? {}),
@@ -250,18 +266,51 @@ async function listPillars(brandId: number): Promise<PillarOut[]> {
   }));
 }
 
+interface BrandSettings {
+  why: string | null;
+  description: string | null;
+  audience: string | null;
+  voice: Record<string, unknown>;
+  branding: Record<string, unknown>;
+}
+
+export interface BrandDetail {
+  brand: BrandRow;
+  settings: BrandSettings;
+  pillars: PillarOut[];
+}
+
+/**
+ * Loads a brand's profile data (settings + pillars) by brand id.
+ * The caller is responsible for ownership / membership verification before
+ * invoking this — it does NOT re-check tenancy.
+ */
+export async function loadBrandDetail(brandId: number): Promise<BrandDetail | null> {
+  const [brandRes, settingsRes, pillars] = await Promise.all([
+    pool.query<BrandRow>(
+      "SELECT id, workspace_id, name, slug FROM brands WHERE id = $1",
+      [brandId],
+    ),
+    pool.query<BrandSettings>(
+      "SELECT why, description, audience, voice, branding FROM brand_settings WHERE brand_id = $1",
+      [brandId],
+    ),
+    listPillars(brandId),
+  ]);
+  if (!brandRes.rows[0]) return null;
+  return {
+    brand: brandRes.rows[0],
+    settings: settingsRes.rows[0] ?? { why: null, description: null, audience: null, voice: {}, branding: {} },
+    pillars,
+  };
+}
+
 apiRouter.get(
   "/brands/:brandId",
   requireBrand(),
   async (req: BrandRequest, res) => {
-    const [settingsRes, pillars] = await Promise.all([
-      pool.query(
-        "SELECT description, audience, voice, branding FROM brand_settings WHERE brand_id = $1",
-        [req.brand!.id],
-      ),
-      listPillars(req.brand!.id),
-    ]);
-    res.json({ brand: req.brand, settings: settingsRes.rows[0] ?? {}, pillars });
+    const detail = await loadBrandDetail(req.brand!.id);
+    res.json(detail ?? { brand: req.brand, settings: {}, pillars: [] });
   },
 );
 
@@ -275,9 +324,10 @@ apiRouter.patch(
       return;
     }
     await pool.query(
-      `INSERT INTO brand_settings (brand_id, description, audience, voice, branding, updated_at)
-       VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, now())
+      `INSERT INTO brand_settings (brand_id, why, description, audience, voice, branding, updated_at)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, now())
        ON CONFLICT (brand_id) DO UPDATE SET
+         why         = COALESCE(EXCLUDED.why, brand_settings.why),
          description = COALESCE(EXCLUDED.description, brand_settings.description),
          audience    = COALESCE(EXCLUDED.audience, brand_settings.audience),
          voice       = EXCLUDED.voice,
@@ -285,6 +335,7 @@ apiRouter.patch(
          updated_at  = now()`,
       [
         req.brand!.id,
+        parsed.data.why ?? null,
         parsed.data.description ?? null,
         parsed.data.audience ?? null,
         JSON.stringify(parsed.data.voice ?? {}),
@@ -473,134 +524,6 @@ apiRouter.post("/active-brand", async (req: AuthedRequest, res) => {
   res.json({ ok: true });
 });
 
-// ── Onboarding: create the first brand + settings, set active, complete ──
-const onboardingSchema = z.object({
-  displayName: z.string().min(1).max(120).optional(),
-  brandName: z.string().max(120).optional(),
-  website: z.string().max(300).optional(),
-  industry: z.string().max(120).optional(),
-  audience: z.string().max(2000).optional(),
-  brandVoice: z.array(z.string()).max(12).optional(),
-  goals: z.string().max(2000).optional(),
-  platforms: z.array(z.string()).max(12).optional(),
-  cadence: z.string().max(60).optional(),
-  pillars: z
-    .array(
-      z.object({
-        name: z.string().min(1).max(120),
-        description: z.string().max(2000).optional(),
-        ratio: z.number().int().optional(),
-      }),
-    )
-    .max(12)
-    .optional(),
-});
-
-function slugify(s: string): string {
-  return (
-    s
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 60) || "brand"
-  );
-}
-
-apiRouter.post("/onboarding", async (req: AuthedRequest, res) => {
-  const parsed = onboardingSchema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.issues });
-    return;
-  }
-  const user = req.user!;
-  const data = parsed.data;
-
-  const wsRes = await pool.query<{ id: number }>(
-    "SELECT active_workspace_id AS id FROM user_settings WHERE user_id = $1",
-    [user.id],
-  );
-  const workspaceId = wsRes.rows[0]?.id;
-  if (!workspaceId) {
-    res.status(409).json({ error: "no active workspace" });
-    return;
-  }
-
-  const voice: Record<string, unknown> = {};
-  if (data.brandVoice?.length) voice.tone = data.brandVoice;
-  if (data.goals?.trim()) voice.goals = data.goals.trim();
-
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-
-    // Profile (kept for the existing UI surface).
-    await client.query(
-      `INSERT INTO profiles (user_id, data, updated_at) VALUES ($1, $2::jsonb, now())
-       ON CONFLICT (user_id) DO UPDATE SET data = EXCLUDED.data, updated_at = now()`,
-      [user.id, JSON.stringify(data)],
-    );
-
-    // First brand. Prefer the 'default' slug; fall back to a derived/unique one.
-    const name = data.brandName?.trim() || "Default";
-    const baseSlug = data.brandName?.trim() ? slugify(data.brandName) : "default";
-    const insertBrand = (slug: string) =>
-      client.query<{ id: number }>(
-        `INSERT INTO brands (workspace_id, name, slug) VALUES ($1, $2, $3)
-         ON CONFLICT (workspace_id, slug) DO NOTHING RETURNING id`,
-        [workspaceId, name, slug],
-      );
-    let r = await insertBrand(baseSlug);
-    if (!r.rows[0]) r = await insertBrand(`${baseSlug}-${Date.now()}`);
-    const brandId = r.rows[0].id;
-
-    await client.query(
-      `INSERT INTO brand_settings (brand_id, description, audience, voice)
-       VALUES ($1, $2, $3, $4::jsonb)
-       ON CONFLICT (brand_id) DO NOTHING`,
-      [
-        brandId,
-        data.industry?.trim() || null,
-        data.audience?.trim() || null,
-        JSON.stringify(voice),
-      ],
-    );
-
-    if (data.pillars?.length) {
-      let sort = 0;
-      for (const p of data.pillars) {
-        await client.query(
-          `INSERT INTO content_pillars (brand_id, name, description, ratio, sort_order)
-           VALUES ($1, $2, $3, $4, $5)`,
-          [brandId, p.name, p.description ?? null, p.ratio ?? null, sort++],
-        );
-      }
-    }
-
-    await client.query(
-      `INSERT INTO user_settings (user_id, active_workspace_id, active_brand_id, updated_at)
-       VALUES ($1, $2, $3, now())
-       ON CONFLICT (user_id) DO UPDATE SET
-         active_workspace_id = EXCLUDED.active_workspace_id,
-         active_brand_id = EXCLUDED.active_brand_id,
-         updated_at = now()`,
-      [user.id, workspaceId, brandId],
-    );
-
-    await client.query(
-      "UPDATE users SET onboarding_completed = true WHERE id = $1",
-      [user.id],
-    );
-
-    await client.query("COMMIT");
-    res.json({ ok: true, brandId });
-  } catch {
-    await client.query("ROLLBACK");
-    res.status(500).json({ error: "could not complete onboarding" });
-  } finally {
-    client.release();
-  }
-});
-
 // ── Instagram connector (brand-scoped) ────────────────────────────────
 apiRouter.get(
   "/brands/:brandId/connectors/instagram/status",
@@ -651,6 +574,373 @@ apiRouter.post(
       res.json(result);
     } catch {
       res.status(500).json({ error: "publish failed" });
+    }
+  },
+);
+
+// ── Instagram scheduled publishing (brand-scoped) ────────────────────
+const scheduleSchema = z.object({
+  caption: z.string().max(2200).optional(),
+  imageBase64: z.string().min(1),
+  contentType: z.string().default("image/jpeg"),
+  scheduledAt: z.string().datetime({ offset: true }),
+});
+
+apiRouter.post(
+  "/brands/:brandId/connectors/instagram/schedule",
+  requireBrand(),
+  async (req: BrandRequest, res) => {
+    const parsed = scheduleSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "imageBase64 and a future scheduledAt (ISO 8601) are required" });
+      return;
+    }
+    const scheduledAt = new Date(parsed.data.scheduledAt);
+    if (scheduledAt <= new Date()) {
+      res.status(400).json({ error: "scheduledAt must be in the future" });
+      return;
+    }
+    try {
+      const postId = await instagram.schedulePost(req.brand!.id, {
+        media: { base64: parsed.data.imageBase64, contentType: parsed.data.contentType },
+        caption: parsed.data.caption,
+        scheduledAt,
+      });
+      res.status(201).json({ id: postId });
+    } catch {
+      res.status(500).json({ error: "could not schedule post" });
+    }
+  },
+);
+
+interface PostRow {
+  id: number;
+  caption: string | null;
+  media_urls: string[];
+  media_type: string;
+  scheduled_at: Date | null;
+  status: string;
+}
+
+// GET  /brands/:brandId/posts?status=scheduled (defaults to scheduled)
+apiRouter.get(
+  "/brands/:brandId/posts",
+  requireBrand(),
+  async (req: BrandRequest, res) => {
+    const status = typeof req.query.status === "string" ? req.query.status : "scheduled";
+    const { rows } = await pool.query<PostRow>(
+      `SELECT id, caption, media_urls, media_type, scheduled_at, status
+         FROM posts
+        WHERE brand_id = $1
+          AND status = $2
+        ORDER BY scheduled_at ASC NULLS LAST, id ASC`,
+      [req.brand!.id, status],
+    );
+    res.json({
+      posts: rows.map((r) => ({
+        id: r.id,
+        caption: r.caption,
+        mediaUrls: r.media_urls,
+        mediaType: r.media_type,
+        scheduledAt: r.scheduled_at?.toISOString() ?? null,
+        status: r.status,
+      })),
+    });
+  },
+);
+
+// DELETE /brands/:brandId/posts/:postId — cancel a scheduled post only
+apiRouter.delete(
+  "/brands/:brandId/posts/:postId",
+  requireBrand(),
+  async (req: BrandRequest, res) => {
+    const postId = Number(req.params.postId);
+    if (!Number.isInteger(postId)) {
+      res.status(400).json({ error: "invalid post id" });
+      return;
+    }
+    const { rowCount } = await pool.query(
+      `DELETE FROM posts WHERE id = $1 AND brand_id = $2 AND status = 'scheduled'`,
+      [postId, req.brand!.id],
+    );
+    if (!rowCount) {
+      res.status(404).json({ error: "post not found or not cancellable" });
+      return;
+    }
+    res.json({ ok: true });
+  },
+);
+
+// ── Post review workflow (brand-scoped) ───────────────────────────────
+
+// GET /brands/:brandId/posts/review-queue
+apiRouter.get(
+  "/brands/:brandId/posts/review-queue",
+  requireBrand(),
+  async (req: BrandRequest, res) => {
+    try {
+      const posts = await listReviewQueue(req.brand!.id);
+      res.json({ posts });
+    } catch {
+      res.status(500).json({ error: "could not load review queue" });
+    }
+  },
+);
+
+// POST /brands/:brandId/posts/:postId/submit
+apiRouter.post(
+  "/brands/:brandId/posts/:postId/submit",
+  requireBrand(),
+  async (req: BrandRequest, res) => {
+    const postId = Number(req.params.postId);
+    if (!Number.isInteger(postId)) {
+      res.status(400).json({ error: "invalid post id" });
+      return;
+    }
+    try {
+      const post = await submitForReview(req.brand!.id, postId);
+      res.json({ post });
+    } catch (e) {
+      if ((e as Error).message === "not_found") {
+        res.status(404).json({ error: "post not found or cannot be submitted" });
+        return;
+      }
+      res.status(500).json({ error: "could not submit post for review" });
+    }
+  },
+);
+
+// POST /brands/:brandId/posts/:postId/approve
+apiRouter.post(
+  "/brands/:brandId/posts/:postId/approve",
+  requireBrand(),
+  async (req: BrandRequest, res) => {
+    const postId = Number(req.params.postId);
+    if (!Number.isInteger(postId)) {
+      res.status(400).json({ error: "invalid post id" });
+      return;
+    }
+    try {
+      const post = await approvePost(req.brand!.id, postId);
+      res.json({ post });
+    } catch (e) {
+      if ((e as Error).message === "not_found") {
+        res.status(404).json({ error: "post not found or cannot be approved" });
+        return;
+      }
+      res.status(500).json({ error: "could not approve post" });
+    }
+  },
+);
+
+const requestChangesSchema = z.object({
+  body: z.string().min(1).max(10000),
+});
+
+// POST /brands/:brandId/posts/:postId/request-changes
+apiRouter.post(
+  "/brands/:brandId/posts/:postId/request-changes",
+  requireBrand(),
+  async (req: BrandRequest, res) => {
+    const postId = Number(req.params.postId);
+    if (!Number.isInteger(postId)) {
+      res.status(400).json({ error: "invalid post id" });
+      return;
+    }
+    const parsed = requestChangesSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "body is required" });
+      return;
+    }
+    const user = req.user!;
+    try {
+      const result = await requestChanges(req.brand!.id, postId, {
+        authorUserId: user.id,
+        authorLabel: "Team member",
+        body: parsed.data.body,
+      });
+      res.json(result);
+    } catch (e) {
+      if ((e as Error).message === "not_found") {
+        res
+          .status(404)
+          .json({ error: "post not found or cannot have changes requested" });
+        return;
+      }
+      res.status(500).json({ error: "could not request changes" });
+    }
+  },
+);
+
+const addCommentSchema = z.object({
+  body: z.string().min(1).max(10000),
+});
+
+// GET /brands/:brandId/posts/:postId/comments
+apiRouter.get(
+  "/brands/:brandId/posts/:postId/comments",
+  requireBrand(),
+  async (req: BrandRequest, res) => {
+    const postId = Number(req.params.postId);
+    if (!Number.isInteger(postId)) {
+      res.status(400).json({ error: "invalid post id" });
+      return;
+    }
+    try {
+      const comments = await listComments(req.brand!.id, postId);
+      res.json({ comments });
+    } catch (e) {
+      if ((e as Error).message === "not_found") {
+        res.status(404).json({ error: "post not found" });
+        return;
+      }
+      res.status(500).json({ error: "could not load comments" });
+    }
+  },
+);
+
+// POST /brands/:brandId/posts/:postId/comments
+apiRouter.post(
+  "/brands/:brandId/posts/:postId/comments",
+  requireBrand(),
+  async (req: BrandRequest, res) => {
+    const postId = Number(req.params.postId);
+    if (!Number.isInteger(postId)) {
+      res.status(400).json({ error: "invalid post id" });
+      return;
+    }
+    const parsed = addCommentSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "body is required" });
+      return;
+    }
+    const user = req.user!;
+    try {
+      const comment = await addComment(req.brand!.id, postId, {
+        authorUserId: user.id,
+        authorLabel: "Team member",
+        body: parsed.data.body,
+        visibility: "internal",
+      });
+      res.status(201).json({ comment });
+    } catch (e) {
+      if ((e as Error).message === "not_found") {
+        res.status(404).json({ error: "post not found" });
+        return;
+      }
+      res.status(500).json({ error: "could not add comment" });
+    }
+  },
+);
+
+// POST /brands/:brandId/posts/:postId/review-link — create a public client-review URL
+// Returns { url } with the raw token embedded; the token hash is stored, raw token is not.
+apiRouter.post(
+  "/brands/:brandId/posts/:postId/review-link",
+  requireBrand(),
+  async (req: BrandRequest, res) => {
+    const postId = Number(req.params.postId);
+    if (!Number.isInteger(postId)) {
+      res.status(400).json({ error: "invalid post id" });
+      return;
+    }
+    try {
+      const rawToken = await createReviewToken(req.brand!.id, postId);
+      const url = `${env.appBaseUrl}/review/${rawToken}`;
+      res.status(201).json({ url });
+    } catch (e) {
+      if ((e as Error).message === "not_found") {
+        res.status(404).json({ error: "post not found" });
+        return;
+      }
+      res.status(500).json({ error: "could not create review link" });
+    }
+  },
+);
+
+// ── Instagram analytics (brand-scoped) ────────────────────────────────
+const ANALYTICS_RANGES = [7, 30, 90];
+
+// Maps the connector's enumerated analytics errors → safe client codes the UI
+// branches on (reconnect prompt vs connect prompt). Never echoes raw text.
+function handleAnalyticsError(e: unknown, res: Response): void {
+  const msg = (e as Error).message;
+  if (e instanceof InsightsPermissionError) {
+    res.status(409).json({
+      error: "reconnect_required",
+      message: "Reconnect Instagram to grant analytics access",
+    });
+    return;
+  }
+  if (msg.startsWith("No Instagram account connected")) {
+    res
+      .status(409)
+      .json({ error: "not_connected", message: "Connect Instagram first" });
+    return;
+  }
+  res.status(500).json({ error: "could not load analytics" });
+}
+
+// GET metrics: returns the latest stored snapshot by default; ?refresh=true (or
+// no snapshot yet) pulls fresh from the Graph API. ?range=7|30|90 sets the
+// window for a fresh pull.
+apiRouter.get(
+  "/brands/:brandId/analytics/instagram",
+  requireBrand(),
+  async (req: BrandRequest, res) => {
+    const range = ANALYTICS_RANGES.includes(Number(req.query.range))
+      ? Number(req.query.range)
+      : 30;
+    const refresh = req.query.refresh === "true";
+    try {
+      let result = refresh ? null : await instagram.latestAnalytics(req.brand!.id);
+      if (!result) result = await instagram.fetchAnalytics(req.brand!.id, range);
+      res.json(result);
+    } catch (e) {
+      handleAnalyticsError(e, res);
+    }
+  },
+);
+
+// GET history: compact KPI series from stored snapshots (oldest → newest) for
+// trend sparklines. Pure DB read — no Graph API call, no fresh pull.
+apiRouter.get(
+  "/brands/:brandId/analytics/instagram/history",
+  requireBrand(),
+  async (req: BrandRequest, res) => {
+    try {
+      res.json(await instagram.analyticsHistory(req.brand!.id));
+    } catch (e) {
+      handleAnalyticsError(e, res);
+    }
+  },
+);
+
+// POST insights: runs Claude over the latest snapshot (fetching one first if
+// none exists) and returns structured insights/action plan/suggestions/ideas.
+apiRouter.post(
+  "/brands/:brandId/analytics/instagram/insights",
+  requireBrand(),
+  async (req: BrandRequest, res) => {
+    try {
+      let result = await instagram.latestAnalytics(req.brand!.id);
+      if (!result) result = await instagram.fetchAnalytics(req.brand!.id, 30);
+      const insights = await anthropic.deriveInsights(
+        req.brand!.id,
+        result.snapshot,
+        result.deltas,
+      );
+      res.json(insights);
+    } catch (e) {
+      const msg = (e as Error).message;
+      if (
+        e instanceof InsightsPermissionError ||
+        msg.startsWith("No Instagram account connected")
+      ) {
+        handleAnalyticsError(e, res);
+        return;
+      }
+      handleAiError(e, res, "insights generation failed");
     }
   },
 );
@@ -762,6 +1052,171 @@ apiRouter.post(
   },
 );
 
+// ── Brand Profile assist (brand-scoped, BYOK Claude) ──────────────────
+// Maps the connector's enumerated errors → safe client status/messages. Never
+// echoes raw provider text.
+function handleAiError(e: unknown, res: Response, fallback: string): void {
+  const msg = (e as Error).message;
+  if (msg === "No AI provider connected for this workspace") {
+    res.status(400).json({ error: "Connect an AI provider in workspace settings" });
+    return;
+  }
+  if (msg === "AI provider key is invalid") {
+    res.status(400).json({ error: msg });
+    return;
+  }
+  if (msg === "AI declined to generate this content") {
+    res.status(422).json({ error: msg });
+    return;
+  }
+  res.status(500).json({ error: fallback });
+}
+
+const PROFILE_FIELDS = ["belief", "voice", "visual", "product", "audience"] as const;
+const profileDraftSchema = z.object({ seed: z.string().min(1).max(2000) });
+const profileRefineSchema = z.object({
+  field: z.enum(PROFILE_FIELDS),
+  current: z.string().max(4000).optional(),
+  steer: z.string().max(60).optional(),
+});
+
+apiRouter.post(
+  "/brands/:brandId/ai/profile/draft",
+  requireBrand(),
+  async (req: BrandRequest, res) => {
+    const parsed = profileDraftSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "invalid request" });
+      return;
+    }
+    try {
+      res.json(await anthropic.draftProfile(req.brand!.id, parsed.data.seed));
+    } catch (e) {
+      handleAiError(e, res, "profile draft failed");
+    }
+  },
+);
+
+// ── Autofill the profile from an external source (website / Instagram) ──
+// Both fetch brand signal, then draft via the same runTask choke point as the
+// seed-based draft. Nothing is persisted — the UI maps the draft onto fields.
+const profileExtractSchema = z.object({ url: z.string().min(1).max(2048) });
+
+// Map the extractor's enumerated codes → safe client messages. Never echoes the
+// URL or raw fetch error.
+const SITE_EXTRACT_MESSAGES: Record<SiteExtractError, string> = {
+  invalid_url: "That doesn't look like a valid website address.",
+  blocked_host: "That address can't be reached — try your public website URL.",
+  unreachable: "Couldn't reach that website. Check the URL and try again.",
+  not_html: "Couldn't read any content from that page.",
+  timeout: "That website took too long to respond. Try again.",
+};
+
+apiRouter.post(
+  "/brands/:brandId/ai/profile/extract",
+  requireBrand(),
+  async (req: BrandRequest, res) => {
+    const parsed = profileExtractSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "invalid request" });
+      return;
+    }
+    let signal;
+    try {
+      signal = await fetchSiteSignal(parsed.data.url);
+    } catch (e) {
+      const msg = (e as Error).message as SiteExtractError;
+      res.status(422).json({
+        error: msg in SITE_EXTRACT_MESSAGES ? SITE_EXTRACT_MESSAGES[msg] : "Couldn't read that website.",
+      });
+      return;
+    }
+    try {
+      res.json(
+        await anthropic.draftProfileFromSource(req.brand!.id, {
+          label: "the brand's website",
+          content: siteSignalToText(signal),
+        }),
+      );
+    } catch (e) {
+      handleAiError(e, res, "profile draft failed");
+    }
+  },
+);
+
+apiRouter.post(
+  "/brands/:brandId/ai/profile/from-instagram",
+  requireBrand(),
+  async (req: BrandRequest, res) => {
+    let signal;
+    try {
+      signal = await instagram.profileSignal(req.brand!.id);
+    } catch (e) {
+      if ((e as Error).message.startsWith("No Instagram account connected")) {
+        res.status(409).json({ error: "not_connected", message: "Connect Instagram first" });
+        return;
+      }
+      res.status(502).json({ error: "Couldn't read your Instagram profile." });
+      return;
+    }
+    const content = [
+      `Instagram: @${signal.username} (${signal.followersCount} followers)`,
+      signal.captions.length
+        ? `Recent post captions:\n- ${signal.captions.join("\n- ")}`
+        : "No recent captions available.",
+    ].join("\n");
+    try {
+      res.json(
+        await anthropic.draftProfileFromSource(req.brand!.id, {
+          label: "the brand's Instagram profile and its recent post captions",
+          content,
+        }),
+      );
+    } catch (e) {
+      handleAiError(e, res, "profile draft failed");
+    }
+  },
+);
+
+apiRouter.post(
+  "/brands/:brandId/ai/profile/refine",
+  requireBrand(),
+  async (req: BrandRequest, res) => {
+    const parsed = profileRefineSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "invalid request" });
+      return;
+    }
+    try {
+      res.json(await anthropic.refineProfileField(req.brand!.id, parsed.data));
+    } catch (e) {
+      handleAiError(e, res, "profile refine failed");
+    }
+  },
+);
+
+// ── AI content plan (brand-scoped, BYOK Claude) ───────────────────────
+const contentPlanSchema = z.object({
+  note: z.string().max(2000).optional(),
+});
+
+apiRouter.post(
+  "/brands/:brandId/ai/content-plan",
+  requireBrand(),
+  async (req: BrandRequest, res) => {
+    const parsed = contentPlanSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "invalid request" });
+      return;
+    }
+    try {
+      res.json(await anthropic.generateContentPlan(req.brand!.id, parsed.data));
+    } catch (e) {
+      handleAiError(e, res, "content plan generation failed");
+    }
+  },
+);
+
 // ── GDPR data export (no secrets/tokens) ──────────────────────────────
 apiRouter.get("/account/export", async (req: AuthedRequest, res) => {
   const userId = req.user!.id;
@@ -806,10 +1261,10 @@ apiRouter.get("/account/export", async (req: AuthedRequest, res) => {
     );
     const exportBrands = [];
     for (const b of brands.rows) {
-      const [settings, pillars, platformSettings, socials, posts] =
+      const [settings, pillars, platformSettings, socials, posts, analytics, comments] =
         await Promise.all([
           pool.query(
-            "SELECT description, audience, voice, branding FROM brand_settings WHERE brand_id = $1",
+            "SELECT why, description, audience, voice, branding FROM brand_settings WHERE brand_id = $1",
             [b.id],
           ),
           pool.query(
@@ -829,6 +1284,17 @@ apiRouter.get("/account/export", async (req: AuthedRequest, res) => {
             "SELECT media_type, caption, media_urls, status, permalink, created_at FROM posts WHERE brand_id = $1 ORDER BY id",
             [b.id],
           ),
+          // Analytics snapshots — payload is metrics + the brand's own captions
+          // / @handle (no tokens or secrets).
+          pool.query(
+            "SELECT range_days, payload, fetched_at FROM ig_analytics_snapshots WHERE brand_id = $1 ORDER BY fetched_at DESC",
+            [b.id],
+          ),
+          // author_user_id excluded (internal id, not useful in export).
+          pool.query(
+            "SELECT id, post_id, visibility, author_label, body, created_at FROM post_comments WHERE brand_id = $1 ORDER BY created_at",
+            [b.id],
+          ),
         ]);
       exportBrands.push({
         name: b.name,
@@ -838,6 +1304,8 @@ apiRouter.get("/account/export", async (req: AuthedRequest, res) => {
         platformSettings: platformSettings.rows,
         socialAccounts: socials.rows,
         posts: posts.rows,
+        analyticsSnapshots: analytics.rows,
+        postComments: comments.rows,
       });
     }
     exportWorkspaces.push({
@@ -925,6 +1393,10 @@ apiRouter.post("/account/delete", async (req: AuthedRequest, res) => {
         )`,
       [user.id],
     );
+    // Erase comments authored by this user in any workspace (GDPR erasure).
+    await client.query("DELETE FROM post_comments WHERE author_user_id = $1", [
+      user.id,
+    ]);
     await client.query("DELETE FROM users WHERE id = $1", [user.id]);
     // (c) magic_link_tokens has no FK — purge by email.
     await client.query("DELETE FROM magic_link_tokens WHERE email = $1", [

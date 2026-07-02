@@ -93,16 +93,44 @@ the Instagram-Login Graph API (`graph.instagram.com`): OAuth → long-lived toke
 (auto-refreshed) → `media` container → `media_publish`. Verified live (a real post
 published).
 
+**Analytics** (`/api/brands/:id/analytics/instagram` + `ig_analytics` /
+`ig_analytics_insights` MCP tools): `fetchAnalytics()` pulls account KPIs, account
+insights, audience demographics, and per-post metrics, normalizes them, and persists
+a snapshot to `ig_analytics_snapshots` (jsonb) for week-over-week deltas;
+`deriveInsights()` runs Claude over the latest snapshot. A third read,
+`analyticsHistory()` (`GET …/analytics/instagram/history` + `ig_analytics_history`
+MCP tool), distills the stored snapshots into a compact KPI series (no Graph call)
+that drives the dashboard's trend **sparklines**. The Analytics tab visualizes all of
+this with dependency-free SVG primitives in `web/src/components/charts.tsx`
+(`Sparkline`/`Donut`/`Scatter`, token-driven so they flip in dark mode — no charting
+lib): KPI-card sparklines, an engagement-mix donut, a reach-vs-engagement post
+scatter, and a gender donut. This needs the
+**`instagram_business_manage_insights`** scope (now in `buildAuthorizeUrl`), so
+accounts connected before it must **reconnect** — a pre-scope token surfaces an
+`InsightsPermissionError` that the API maps to a `reconnect_required` 409 and the UI
+turns into a reconnect prompt. Graph metric names are version-sensitive
+(`IG_GRAPH_VERSION`, default v21.0); the client tolerates missing metrics rather than
+failing the whole pull.
+
 ## Frontend conventions
 
-- **Tailwind v4**; theme tokens in `web/src/index.css` under `@theme`. Brand ramp is
-  **indigo** (`brand-50/100/500/600/700`) on a slate canvas. Use named tokens, not
-  raw hex.
+- **Tailwind v4**; tokens in `web/src/index.css`. Brand ramp is **indigo**
+  (`brand-50/100/500/600/700`). **Theming = semantic tokens** that flip on `.dark`:
+  use `bg-surface`/`bg-canvas`/`bg-elevated`, `text-ink`/`text-muted`/`text-faint`,
+  `border-line`/`border-line-strong`, `bg-hover`, and `accent`/`accent-soft`/
+  `accent-soft-fg`/`accent-line` for tinted (selected/AI) states — **not** literal
+  `slate-*`/`white` or `brand-50` fills, so dark mode works without per-element
+  `dark:` variants. Light/dark/system toggle lives in `src/theme.tsx` (persisted);
+  `ThemeProvider` wraps the app. Keep `focus:ring-brand-100` / `bg-brand-600`
+  primary buttons as-is. No purple-gradient AI-slop.
 - **Behaviour primitives = Radix (+ cmdk), styling = ours.** Dialogs/menus/popovers/
   tooltips/focus-traps → `@radix-ui/react-*`; command palette / combobox → `cmdk`.
   Wrap them behind `web/src/components/ui/` and skin with tokens — **never hand-roll**
   a dialog or focus trap. (Deps installed.)
-- No icon-library dependency; inline SVG/emoji. No purple-gradient AI-slop.
+- **Icons = `lucide-react`** (installed). Use lucide components sized with
+  `className="h-4 w-4"`; `Loader2` + `animate-spin motion-reduce:animate-none` for
+  spinners. Don't hand-roll inline `<svg>` glyphs or use emoji as UI controls
+  (decorative emoji in copy is fine).
 - No side effects in render bodies; paginate long lists; consume `web/src/api.ts`
   (cookie session, `credentials: include`) rather than ad-hoc fetch.
 
@@ -130,8 +158,12 @@ published).
 
 When writing code that calls Claude/Anthropic, **load the `claude-api` skill** — it
 holds current model ids and SDK patterns. Default model `claude-opus-4-8`. The
-in-app AI caption assist (`/api/ai/caption`) is currently a `501` stub awaiting the
-workspace-level LLM connector.
+workspace-level LLM connector is **built** (`src/connectors/anthropic/`, BYOK
+per-workspace key resolved via `getConnectorApiKey`): all generation routes through
+the single `runTask()` choke point (per-task model tiering + output caps + cacheable
+brand-profile prefix). It powers AI caption assist (`/api/ai/caption`), the Brand
+Profile draft/refine assist, and Instagram analytics insights (`deriveInsights`) —
+add new generations as a `TaskType`, never a fresh client.
 
 ## Roadmap / not yet built
 

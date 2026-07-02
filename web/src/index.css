@@ -1,11 +1,130 @@
 @import "tailwindcss";
 
+/* Enable class-based dark mode: `dark:` variants apply under a `.dark` ancestor. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Semantic theme tokens. Raw values live in :root / .dark and are referenced by
+ * the @theme color tokens below, so utilities like `bg-surface` / `text-ink`
+ * resolve through the CSS variable and flip automatically with the .dark class.
+ * Migrate components to these tokens rather than literal slate/white classes.
+ */
+:root {
+  --canvas: #f6f7f9;
+  --surface: #ffffff;
+  --elevated: #ffffff;
+  --ink: #0f172a;
+  --muted: #5b6675;
+  --faint: #94a3b8;
+  --line: #e7eaef;
+  --line-strong: #d6dbe3;
+  --hover: #f1f3f6;
+
+  /* Accent (indigo) — soft fills + foregrounds that read on either ground. */
+  --accent: #4f46e5;
+  --accent-strong: #4338ca;
+  --accent-soft: #eef2ff;
+  --accent-soft-fg: #4338ca;
+  --accent-line: #c7d2fe;
+}
+
+.dark {
+  --canvas: #0b0e14;
+  --surface: #141925;
+  --elevated: #1b2230;
+  --ink: #e8ebf2;
+  --muted: #9aa6b8;
+  --faint: #687387;
+  --line: #232a38;
+  --line-strong: #313a4b;
+  --hover: #1c2433;
+
+  --accent: #818cf8;
+  --accent-strong: #a5b4fc;
+  --accent-soft: rgba(99, 102, 241, 0.16);
+  --accent-soft-fg: #a5b4fc;
+  --accent-line: rgba(129, 140, 248, 0.32);
+}
+
 @theme {
   --color-brand-50: #eef2ff;
   --color-brand-100: #e0e7ff;
+  --color-brand-200: #c7d2fe;
   --color-brand-500: #6366f1;
   --color-brand-600: #4f46e5;
   --color-brand-700: #4338ca;
+
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-elevated: var(--elevated);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-hover: var(--hover);
+
+  --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-soft-fg: var(--accent-soft-fg);
+  --color-accent-line: var(--accent-line);
+
+  /*
+   * Motion tokens — drive the `animate-*` utilities. `both` fill-mode holds the
+   * start frame before play so staggered/delayed items don't flash in at full
+   * opacity first. Eased with a gentle "ease-out-expo"-ish curve.
+   */
+  --animate-fade-in: fade-in 0.4s ease-out both;
+  --animate-fade-up: fade-up 0.52s cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-page: page-in 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/*
+ * Respect the OS "reduce motion" setting globally: collapse every animation and
+ * transition to ~instant rather than auditing each call site. Items still appear
+ * (the `both` start frame is skipped) — they just don't move.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 html,
@@ -15,6 +134,14 @@ body,
 }
 
 body {
-  background: #f8fafc;
-  color: #0f172a;
+  background: var(--canvas);
+  color: var(--ink);
+}
+
+/* Native form controls (e.g. <input type=color>) follow the theme. */
+:root {
+  color-scheme: light;
+}
+.dark {
+  color-scheme: dark;
 }

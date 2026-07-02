@@ -25,10 +25,10 @@ export function Tooltip({
         <RTooltip.Content
           side={side}
           sideOffset={6}
-          className="z-50 rounded-lg bg-slate-900 px-2.5 py-1.5 text-xs font-medium text-white shadow-md"
+          className="z-50 rounded-lg bg-ink px-2.5 py-1.5 text-xs font-medium text-surface shadow-md"
         >
           {label}
-          <RTooltip.Arrow className="fill-slate-900" />
+          <RTooltip.Arrow className="fill-ink" />
         </RTooltip.Content>
       </RTooltip.Portal>
     </RTooltip.Root>

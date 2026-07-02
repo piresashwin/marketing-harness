@@ -19,7 +19,7 @@ export interface WorkspaceConnector {
 }
 
 export interface Me {
-  user: { id: string; email: string; onboardingCompleted: boolean };
+  user: { id: string; email: string };
   activeWorkspaceId: string | null;
   activeBrandId: string | null;
   brands: Brand[];
@@ -38,7 +38,16 @@ export interface BrandVoice {
   tone?: string[];
   guidelines?: string;
   goals?: string;
+  /** "3 words you are" */
+  are?: string[];
+  /** "3 words you're never" */
+  never?: string[];
   [k: string]: unknown;
+}
+
+export interface BrandColor {
+  hex: string;
+  name?: string;
 }
 
 export interface BrandBranding {
@@ -48,10 +57,16 @@ export interface BrandBranding {
   accentColor?: string;
   font?: string;
   visualStyle?: string;
+  /** Short prose: palette, mood, typography feel. */
+  visual?: string;
+  /** The brand palette — add/remove swatches with optional names. */
+  colors?: BrandColor[];
   [k: string]: unknown;
 }
 
 export interface BrandSettings {
+  /** Core belief — why this brand exists beyond making money. */
+  why?: string | null;
   description?: string | null;
   audience?: string | null;
   voice?: BrandVoice;
@@ -70,6 +85,157 @@ export interface BrandDetail {
   brand: Brand;
   settings: BrandSettings;
   pillars: Pillar[];
+}
+
+/** Prose fields the Profile AI assist can draft / refine. */
+export type ProfileField =
+  | "belief"
+  | "voice"
+  | "visual"
+  | "product"
+  | "audience";
+
+/** A full AI-drafted profile, mapped onto the editable Profile fields. */
+export interface DraftProfile {
+  belief: string;
+  tone: string[];
+  voiceGuidelines: string;
+  product: string;
+  audience: string;
+  visual: string;
+  pillars: { name: string; description: string; ratio?: number }[];
+}
+
+// ── Instagram scheduled posts ────────────────────────────────────────
+export interface ScheduledPost {
+  id: string;
+  caption: string | null;
+  mediaUrls: string[];
+  mediaType: string;
+  scheduledAt: string | null;
+  status: string;
+}
+
+// ── Client review portal (public, token-gated) ───────────────────────
+
+/** Minimal comment shape returned by the public portal. */
+export interface ClientComment {
+  id: string;
+  authorLabel: string;
+  body: string;
+  createdAt: string;
+}
+
+/** The client-safe post view returned by GET /portal/review/:token. */
+export interface ClientReviewView {
+  caption: string | null;
+  mediaUrls: string[];
+  mediaType: string;
+  scheduledAt: string | null;
+  status: string;
+  comments: ClientComment[];
+}
+
+// ── Post review workflow ──────────────────────────────────────────────
+export interface ReviewPost {
+  id: string;
+  caption: string | null;
+  mediaUrls: string[];
+  mediaType: string;
+  scheduledAt: string | null;
+  status: string;
+  createdAt: string;
+}
+
+export interface PostComment {
+  id: string;
+  postId: string;
+  authorUserId: string | null;
+  authorLabel: string;
+  visibility: string;
+  body: string;
+  createdAt: string;
+}
+
+// ── Instagram analytics ───────────────────────────────────────────────
+export interface AnalyticsPost {
+  id: string;
+  caption?: string;
+  mediaType: string;
+  timestamp?: string;
+  permalink?: string;
+  likeCount: number;
+  commentsCount: number;
+  reach?: number;
+  saved?: number;
+  shares?: number;
+  totalInteractions?: number;
+  views?: number;
+}
+
+export interface AnalyticsSnapshot {
+  account: {
+    username: string | null;
+    followersCount: number;
+    followsCount: number;
+    mediaCount: number;
+  };
+  insights: {
+    reach?: number;
+    views?: number;
+    profileViews?: number;
+    accountsEngaged?: number;
+    totalInteractions?: number;
+  };
+  demographics: {
+    age?: Record<string, number>;
+    gender?: Record<string, number>;
+    country?: Record<string, number>;
+  };
+  posts: AnalyticsPost[];
+  rangeDays: number;
+}
+
+export interface AnalyticsDeltas {
+  followersCount?: number;
+  reach?: number;
+  views?: number;
+  totalInteractions?: number;
+}
+
+export interface AnalyticsResult {
+  snapshot: AnalyticsSnapshot;
+  fetchedAt: string;
+  deltas: AnalyticsDeltas | null;
+}
+
+// Compact KPI point from a stored snapshot, oldest → newest. Drives sparklines.
+export interface AnalyticsHistoryPoint {
+  fetchedAt: string;
+  followersCount: number;
+  reach?: number;
+  views?: number;
+  totalInteractions?: number;
+}
+
+export interface AnalyticsInsights {
+  insights: { title: string; detail: string }[];
+  actionPlan: { action: string; why: string; priority: string }[];
+  suggestions: string[];
+  contentIdeas: { idea: string; format: string; pillar: string }[];
+}
+
+// ── Content plan ─────────────────────────────────────────────────────
+export interface ContentPlanItem {
+  pillar: string;
+  format: "Reel" | "Carousel" | "Single" | "Story";
+  dayOffset: number;
+  time: string | null;
+  hook: string;
+}
+
+export interface ContentPlan {
+  items: ContentPlanItem[];
 }
 
 export type PlatformKey = "instagram" | "linkedin" | "facebook";
@@ -124,7 +290,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   me: async (): Promise<Me> => {
     const raw = await request<{
-      user: { id: unknown; email: string; onboardingCompleted: boolean };
+      user: { id: unknown; email: string };
       activeWorkspaceId: unknown;
       activeBrandId: unknown;
       brands: { id: unknown; workspace_id: unknown; name: string; slug: string }[];
@@ -135,7 +301,6 @@ export const api = {
       user: {
         id: String(raw.user.id),
         email: raw.user.email,
-        onboardingCompleted: raw.user.onboardingCompleted,
       },
       activeWorkspaceId: idStr(raw.activeWorkspaceId),
       activeBrandId: idStr(raw.activeBrandId),
@@ -151,11 +316,6 @@ export const api = {
       { method: "POST", body: JSON.stringify({ email }) },
     ),
   logout: () => request<{ ok: boolean }>("/auth/logout", { method: "POST" }),
-  saveOnboarding: (data: object) =>
-    request<{ ok: boolean; brandId: number }>("/api/onboarding", {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
 
   // ── Brands ──────────────────────────────────────────────────────────
   listBrands: async (): Promise<Brand[]> => {
@@ -203,6 +363,7 @@ export const api = {
   patchBrand: (
     brandId: string,
     input: {
+      why?: string;
       description?: string;
       audience?: string;
       voice?: BrandVoice;
@@ -277,11 +438,204 @@ export const api = {
       { method: "POST", body: JSON.stringify(payload) },
     ),
 
+  // ── Instagram scheduling (brand-scoped) ─────────────────────────────
+  igSchedule: (
+    brandId: string,
+    payload: { caption?: string; imageBase64: string; contentType: string; scheduledAt: string },
+  ) =>
+    request<{ id: number | string }>(
+      `/api/brands/${brandId}/connectors/instagram/schedule`,
+      { method: "POST", body: JSON.stringify(payload) },
+    ).then((r) => ({ id: String(r.id) })),
+
+  listQueue: async (brandId: string): Promise<ScheduledPost[]> => {
+    const raw = await request<{
+      posts: { id: unknown; caption: string | null; mediaUrls: string[]; mediaType: string; scheduledAt: string | null; status: string }[];
+    }>(`/api/brands/${brandId}/posts?status=scheduled`);
+    return raw.posts.map((p) => ({ ...p, id: String(p.id) }));
+  },
+
+  cancelScheduled: (brandId: string, postId: string) =>
+    request<{ ok: boolean }>(`/api/brands/${brandId}/posts/${postId}`, {
+      method: "DELETE",
+    }),
+
+  // ── Post review workflow (brand-scoped) ─────────────────────────────
+  listReviewQueue: async (brandId: string): Promise<ReviewPost[]> => {
+    const raw = await request<{
+      posts: {
+        id: unknown;
+        caption: string | null;
+        mediaUrls: string[];
+        mediaType: string;
+        scheduledAt: string | null;
+        status: string;
+        createdAt: string;
+      }[];
+    }>(`/api/brands/${brandId}/posts/review-queue`);
+    return raw.posts.map((p) => ({ ...p, id: String(p.id) }));
+  },
+
+  submitForReview: async (brandId: string, postId: string): Promise<ReviewPost> => {
+    const raw = await request<{ post: { id: unknown; caption: string | null; mediaUrls: string[]; mediaType: string; scheduledAt: string | null; status: string; createdAt: string } }>(
+      `/api/brands/${brandId}/posts/${postId}/submit`,
+      { method: "POST" },
+    );
+    return { ...raw.post, id: String(raw.post.id) };
+  },
+
+  approvePost: async (brandId: string, postId: string): Promise<ReviewPost> => {
+    const raw = await request<{ post: { id: unknown; caption: string | null; mediaUrls: string[]; mediaType: string; scheduledAt: string | null; status: string; createdAt: string } }>(
+      `/api/brands/${brandId}/posts/${postId}/approve`,
+      { method: "POST" },
+    );
+    return { ...raw.post, id: String(raw.post.id) };
+  },
+
+  requestChanges: async (
+    brandId: string,
+    postId: string,
+    body: string,
+  ): Promise<{ post: ReviewPost; comment: PostComment }> => {
+    const raw = await request<{
+      post: { id: unknown; caption: string | null; mediaUrls: string[]; mediaType: string; scheduledAt: string | null; status: string; createdAt: string };
+      comment: { id: unknown; postId: unknown; authorUserId: unknown | null; authorLabel: string; visibility: string; body: string; createdAt: string };
+    }>(`/api/brands/${brandId}/posts/${postId}/request-changes`, {
+      method: "POST",
+      body: JSON.stringify({ body }),
+    });
+    return {
+      post: { ...raw.post, id: String(raw.post.id) },
+      comment: { ...raw.comment, id: String(raw.comment.id), postId: String(raw.comment.postId), authorUserId: raw.comment.authorUserId != null ? String(raw.comment.authorUserId) : null },
+    };
+  },
+
+  listComments: async (brandId: string, postId: string): Promise<PostComment[]> => {
+    const raw = await request<{
+      comments: { id: unknown; postId: unknown; authorUserId: unknown | null; authorLabel: string; visibility: string; body: string; createdAt: string }[];
+    }>(`/api/brands/${brandId}/posts/${postId}/comments`);
+    return raw.comments.map((c) => ({
+      ...c,
+      id: String(c.id),
+      postId: String(c.postId),
+      authorUserId: c.authorUserId != null ? String(c.authorUserId) : null,
+    }));
+  },
+
+  addComment: async (brandId: string, postId: string, body: string): Promise<PostComment> => {
+    const raw = await request<{
+      comment: { id: unknown; postId: unknown; authorUserId: unknown | null; authorLabel: string; visibility: string; body: string; createdAt: string };
+    }>(`/api/brands/${brandId}/posts/${postId}/comments`, {
+      method: "POST",
+      body: JSON.stringify({ body }),
+    });
+    const c = raw.comment;
+    return {
+      ...c,
+      id: String(c.id),
+      postId: String(c.postId),
+      authorUserId: c.authorUserId != null ? String(c.authorUserId) : null,
+    };
+  },
+
+  // ── Client review portal — internal link creation (authed) ─────────
+  /** Create a public review link for a post. Returns the URL containing the raw token. */
+  createReviewLink: (brandId: string, postId: string) =>
+    request<{ url: string }>(
+      `/api/brands/${brandId}/posts/${postId}/review-link`,
+      { method: "POST" },
+    ),
+
+  // ── Client review portal — public actions (no auth, /portal/... paths) ──
+  /** Fetch the client-safe view of a post via its review token. */
+  getClientReview: (token: string) =>
+    request<ClientReviewView>(`/portal/review/${token}`),
+
+  /** Approve a post via its review token. */
+  clientApprove: (token: string) =>
+    request<{ status: string }>(`/portal/review/${token}/approve`, {
+      method: "POST",
+    }),
+
+  /** Request changes via its review token, with a client comment body. */
+  clientRequestChanges: (token: string, body: string) =>
+    request<{ status: string }>(`/portal/review/${token}/request-changes`, {
+      method: "POST",
+      body: JSON.stringify({ body }),
+    }),
+
+  /** Add a standalone client comment via its review token. */
+  clientComment: (token: string, body: string) =>
+    request<{ comment: ClientComment }>(`/portal/review/${token}/comment`, {
+      method: "POST",
+      body: JSON.stringify({ body }),
+    }),
+
+  // ── Instagram analytics (brand-scoped) ──────────────────────────────
+  /** Latest stored snapshot, or a fresh pull when refresh=true / none exists. */
+  igAnalytics: (
+    brandId: string,
+    opts?: { range?: 7 | 30 | 90; refresh?: boolean },
+  ) => {
+    const q = new URLSearchParams();
+    if (opts?.range) q.set("range", String(opts.range));
+    if (opts?.refresh) q.set("refresh", "true");
+    const qs = q.toString();
+    return request<AnalyticsResult>(
+      `/api/brands/${brandId}/analytics/instagram${qs ? `?${qs}` : ""}`,
+    );
+  },
+  /** Compact KPI series from stored snapshots (oldest → newest) for sparklines. */
+  igAnalyticsHistory: (brandId: string) =>
+    request<AnalyticsHistoryPoint[]>(
+      `/api/brands/${brandId}/analytics/instagram/history`,
+    ),
+  /** Generate AI insights over the latest snapshot (spends Claude credits). */
+  igAnalyticsInsights: (brandId: string) =>
+    request<AnalyticsInsights>(
+      `/api/brands/${brandId}/analytics/instagram/insights`,
+      { method: "POST" },
+    ),
+
   // ── AI ──────────────────────────────────────────────────────────────
   aiCaption: (brandId: string, prompt?: string, platform?: string) =>
     request<{ caption: string }>(`/api/brands/${brandId}/ai/caption`, {
       method: "POST",
       body: JSON.stringify({ prompt, platform }),
+    }),
+  /** Draft a whole profile from a one-line seed (review, not persisted). */
+  aiDraftProfile: (brandId: string, seed: string) =>
+    request<DraftProfile>(`/api/brands/${brandId}/ai/profile/draft`, {
+      method: "POST",
+      body: JSON.stringify({ seed }),
+    }),
+  /** Refine one profile field, anchored to the rest of the profile. */
+  aiRefineField: (
+    brandId: string,
+    field: ProfileField,
+    current?: string,
+    steer?: string,
+  ) =>
+    request<{ text: string }>(`/api/brands/${brandId}/ai/profile/refine`, {
+      method: "POST",
+      body: JSON.stringify({ field, current, steer }),
+    }),
+  /** Draft a whole profile by extracting signal from a website (not persisted). */
+  aiExtractProfile: (brandId: string, url: string) =>
+    request<DraftProfile>(`/api/brands/${brandId}/ai/profile/extract`, {
+      method: "POST",
+      body: JSON.stringify({ url }),
+    }),
+  /** Draft a whole profile from the connected Instagram account (not persisted). */
+  aiProfileFromInstagram: (brandId: string) =>
+    request<DraftProfile>(`/api/brands/${brandId}/ai/profile/from-instagram`, {
+      method: "POST",
+    }),
+  /** Draft a ~2-week content plan from brand profile + a short user note. */
+  aiContentPlan: (brandId: string, body: { note?: string }) =>
+    request<ContentPlan>(`/api/brands/${brandId}/ai/content-plan`, {
+      method: "POST",
+      body: JSON.stringify(body),
     }),
 
   // ── Workspace connectors (AI providers) ─────────────────────────────

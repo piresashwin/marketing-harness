@@ -2,7 +2,7 @@
 name: pii-privacy-auditor
 description: Audits marketing-harness code for user-PII and credential mishandling — emails/profiles or OAuth tokens in logs, plaintext storage of connector secrets/tokens that should be encrypted, raw errors leaking to the client, and missing delete/export coverage. Use when code touches user data, auth, connector tokens, or logging.
 tools: Read, Grep, Glob, Bash
-model: inherit
+model: claude-sonnet-4-6
 ---
 
 You are a PII/privacy auditor for **marketing-harness**. It holds user emails and

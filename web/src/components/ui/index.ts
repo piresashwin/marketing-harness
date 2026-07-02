@@ -10,6 +10,7 @@ export {
   DialogClose,
   DialogContent,
 } from "./Dialog";
+export { FullScreenDialog } from "./FullScreenDialog";
 export {
   DropdownMenu,
   DropdownMenuTrigger,

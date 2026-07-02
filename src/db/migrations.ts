@@ -298,4 +298,123 @@ export const MIGRATIONS: Migration[] = [
         ADD COLUMN IF NOT EXISTS consent_user_id bigint REFERENCES users(id) ON DELETE CASCADE;
     `,
   },
+  {
+    id: 9,
+    name: "brand_why",
+    sql: `
+      -- The brand's "Why" — the belief behind it (Golden Circle core). A
+      -- first-class, singular prose field, so it's a column like description /
+      -- audience (the How/What lists live as keys inside the voice/branding
+      -- jsonb). Nullable, no backfill.
+      ALTER TABLE brand_settings ADD COLUMN IF NOT EXISTS why text;
+    `,
+  },
+  {
+    id: 10,
+    name: "ig_analytics_snapshots",
+    sql: `
+      -- Point-in-time Instagram analytics pulls, persisted so the UI can show
+      -- week-over-week deltas and so AI insights can regenerate without
+      -- re-hitting the rate-limited Graph API. payload is the normalized
+      -- snapshot (account counts, account insights, demographics, per-post
+      -- metrics) — no tokens, no secrets.
+      CREATE TABLE IF NOT EXISTS ig_analytics_snapshots (
+        id                bigserial PRIMARY KEY,
+        brand_id          bigint NOT NULL REFERENCES brands(id) ON DELETE CASCADE,
+        social_account_id bigint REFERENCES social_accounts(id) ON DELETE SET NULL,
+        range_days        integer NOT NULL,
+        payload           jsonb NOT NULL,
+        fetched_at        timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS ig_analytics_snapshots_brand_idx
+        ON ig_analytics_snapshots(brand_id, fetched_at DESC);
+    `,
+  },
+  {
+    id: 11,
+    name: "scheduled_publishing",
+    sql: `
+      -- scheduled_at: when the worker should publish the post. NULL for
+      -- immediate/legacy posts. Status 'scheduled' = waiting for the worker;
+      -- 'publishing' = worker claimed it (atomic UPDATE claim prevents double-send);
+      -- 'published'/'failed' are terminal.
+      ALTER TABLE posts ADD COLUMN IF NOT EXISTS scheduled_at timestamptz;
+
+      -- Partial index for the worker poll: only rows that are actually due.
+      CREATE INDEX IF NOT EXISTS posts_due_idx
+        ON posts(scheduled_at)
+        WHERE status = 'scheduled';
+    `,
+  },
+  {
+    id: 12,
+    name: "post_review_workflow",
+    sql: `
+      -- Internal approval workflow comments. visibility is forward-looking ('internal'
+      -- vs 'client' in slice 4b); 4a writes only 'internal'.
+      -- brand_id is denormalized for tenant-scoped queries.
+      -- ON DELETE CASCADE from posts ensures comments are removed when a post is
+      -- deleted. The brand-delete handler in routes.ts already does
+      -- DELETE FROM posts WHERE brand_id=... before deleting the brand row, which
+      -- cascades to post_comments via this FK. No extra delete handler needed.
+      CREATE TABLE IF NOT EXISTS post_comments (
+        id             bigserial PRIMARY KEY,
+        post_id        bigint NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+        brand_id       bigint NOT NULL,
+        author_user_id bigint REFERENCES users(id) ON DELETE SET NULL,
+        author_label   text NOT NULL,
+        visibility     text NOT NULL DEFAULT 'internal',
+        body           text NOT NULL,
+        created_at     timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS post_comments_post_idx ON post_comments(post_id);
+    `,
+  },
+  {
+    id: 13,
+    name: "client_review_tokens",
+    sql: `
+      -- Single-post review tokens for the public client portal (slice 4b).
+      -- Only the sha256 hex hash of the raw token is stored here; the raw token
+      -- is returned to the internal owner once and never persisted.
+      -- ON DELETE CASCADE means tokens are cleaned up when the post is deleted.
+      CREATE TABLE IF NOT EXISTS review_tokens (
+        token_hash  text PRIMARY KEY,
+        post_id     bigint NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+        brand_id    bigint NOT NULL REFERENCES brands(id) ON DELETE CASCADE,
+        expires_at  timestamptz NOT NULL,
+        revoked     boolean NOT NULL DEFAULT false,
+        created_at  timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS review_tokens_post_idx ON review_tokens(post_id);
+    `,
+  },
+  {
+    id: 14,
+    name: "review_workflow_fks",
+    sql: `
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+           WHERE conrelid = 'post_comments'::regclass AND contype = 'f'
+             AND conkey = (SELECT array_agg(attnum) FROM pg_attribute
+                            WHERE attrelid = 'post_comments'::regclass AND attname = 'author_user_id')
+        ) THEN
+          ALTER TABLE post_comments
+            ADD CONSTRAINT post_comments_author_fk
+            FOREIGN KEY (author_user_id) REFERENCES users(id) ON DELETE SET NULL;
+        END IF;
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+           WHERE conrelid = 'review_tokens'::regclass AND contype = 'f'
+             AND conkey = (SELECT array_agg(attnum) FROM pg_attribute
+                            WHERE attrelid = 'review_tokens'::regclass AND attname = 'brand_id')
+        ) THEN
+          ALTER TABLE review_tokens
+            ADD CONSTRAINT review_tokens_brand_fk
+            FOREIGN KEY (brand_id) REFERENCES brands(id) ON DELETE CASCADE;
+        END IF;
+      END $$;
+    `,
+  },
 ];

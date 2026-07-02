@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react";
+import { useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { useBrand } from "../brand";
 import {
@@ -23,8 +24,10 @@ function slugify(s: string): string {
 }
 
 /**
- * Create-brand modal (Radix Dialog). On success, switches to the new brand and
- * calls onCreated. `trigger` lets callers supply their own opener element.
+ * Create-brand modal (Radix Dialog). Captures the brand name and a one-sentence
+ * seed, then routes into the brand profile in onboarding mode so the AI drafts
+ * the Why/How/What from that sentence. `trigger` lets callers supply their own
+ * opener element; `onCreated` still fires for callers that need the new id.
  */
 export function CreateBrandDialog({
   trigger,
@@ -33,12 +36,13 @@ export function CreateBrandDialog({
   trigger: ReactNode;
   onCreated?: (brandId: string) => void;
 }) {
+  const navigate = useNavigate();
   const { switchBrand, refresh } = useBrand();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [slugTouched, setSlugTouched] = useState(false);
-  const [description, setDescription] = useState("");
+  const [seed, setSeed] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -46,7 +50,7 @@ export function CreateBrandDialog({
     setName("");
     setSlug("");
     setSlugTouched(false);
-    setDescription("");
+    setSeed("");
     setError("");
     setBusy(false);
   };
@@ -67,15 +71,20 @@ export function CreateBrandDialog({
     setBusy(true);
     setError("");
     try {
+      // Create the brand empty (no description) so the profile opens on the
+      // draft hero; the seed is handed forward via route state, not persisted
+      // until the AI draft is applied and autosaved.
       const { id } = await api.createBrand({
         name: name.trim(),
         slug: finalSlug,
-        description: description.trim() || undefined,
       });
       await refresh();
       await switchBrand(id);
       onOpenChange(false);
       onCreated?.(id);
+      navigate(`/brands/${id}/settings`, {
+        state: { seed: seed.trim() || undefined, onboarding: true },
+      });
     } catch (e) {
       const err = e as Error & { status?: number };
       setError(
@@ -92,7 +101,7 @@ export function CreateBrandDialog({
       <DialogTrigger asChild>{trigger}</DialogTrigger>
       <DialogContent
         title="New brand"
-        description="Spin up another brand in this workspace."
+        description="Name it and tell us what it's about — we'll draft the profile next."
       >
         <form
           onSubmit={(e) => {
@@ -128,19 +137,22 @@ export function CreateBrandDialog({
               />
             )}
           </Field>
-          <Field label="One-line description (optional)">
+          <Field
+            label="In a sentence, what's this brand about? (optional)"
+            hint="We'll draft your belief, voice and content themes from this. You can skip and start blank."
+          >
             {(id) => (
               <Textarea
                 id={id}
                 rows={2}
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="What this brand is about"
+                value={seed}
+                onChange={(e) => setSeed(e.target.value)}
+                placeholder="A booking app that helps indie barbers fill empty chairs."
               />
             )}
           </Field>
           {error && (
-            <p className="text-sm text-red-600" role="alert">
+            <p className="text-sm text-red-600 dark:text-red-400" role="alert">
               {error}
             </p>
           )}
@@ -151,7 +163,7 @@ export function CreateBrandDialog({
               </Button>
             </DialogClose>
             <Button type="submit" disabled={busy}>
-              {busy ? "Creating…" : "Create brand"}
+              {busy ? "Creating…" : "Create & continue"}
             </Button>
           </div>
         </form>

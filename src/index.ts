@@ -11,16 +11,19 @@ import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middlew
 import { env } from "./config/env.js";
 import { runMigrations } from "./db/index.js";
 import { mediaStore } from "./connectors/media/index.js";
+import { startScheduler } from "./scheduler/worker.js";
 import { createMcpServer } from "./mcp/server.js";
 import { oauthRouter } from "./http/oauth.js";
 import { oauthConsentRouter } from "./http/oauth-consent.js";
 import { oauthProvider } from "./mcp/oauth/provider.js";
 import { authRouter } from "./auth/routes.js";
 import { apiRouter } from "./api/routes.js";
+import { clientPortalRouter } from "./http/clientPortal.js";
 
 async function main() {
   await runMigrations();
   await mediaStore.init();
+  startScheduler();
 
   const app = express();
   app.use(express.json({ limit: "25mb" }));
@@ -32,6 +35,8 @@ async function main() {
   app.use(authRouter);
   app.use("/api", apiRouter);
   app.use(oauthRouter);
+  // Public client review portal — no auth, no session, token-gated per-post access.
+  app.use(clientPortalRouter);
 
   // ── MCP OAuth 2.1 authorization server (the harness is its own AS) ────
   // Mounts /.well-known/oauth-authorization-server + protected-resource metadata,
@@ -101,7 +106,7 @@ async function main() {
   if (existsSync(webDist)) {
     app.use(express.static(webDist));
     app.get(
-      /^(?!\/(api|auth|mcp|connectors|media|healthz)).*/,
+      /^(?!\/(api|auth|mcp|connectors|media|healthz|portal)).*/,
       (_req, res) => res.sendFile(path.join(webDist, "index.html")),
     );
   }

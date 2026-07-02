@@ -85,9 +85,9 @@ authRouter.get("/auth/verify", async (req, res) => {
     }
 
     await createSession(res, user.id);
-    res.redirect(
-      `${env.appBaseUrl}${user.onboarding_completed ? "/dashboard" : "/onboarding"}`,
-    );
+    // The SPA resolves where to land from brand state (0 brands → welcome,
+    // otherwise the brand home) — no user-level onboarding gate.
+    res.redirect(`${env.appBaseUrl}/`);
   } catch (e) {
     console.error("[auth] verify error:", (e as Error).name);
     res.status(500).send("Sign-in failed.");

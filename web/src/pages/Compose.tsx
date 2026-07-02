@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { CalendarClock, Loader2, Plus, Sparkles } from "lucide-react";
 import { api, type IgStatus } from "../api";
 import { useBrand } from "../brand";
 import { AppShell } from "../components/AppShell";
@@ -47,7 +48,7 @@ export function Compose() {
       actions={<ConnectionPill ig={ig} />}
     >
       {activeBrandId == null ? (
-        <Card className="p-8 text-center text-sm text-slate-500">
+        <Card className="p-8 text-center text-sm text-muted">
           No active brand. Create one to start composing.
         </Card>
       ) : (
@@ -63,8 +64,8 @@ function ConnectionPill({ ig }: { ig: IgStatus | null }) {
     <span
       className={`hidden rounded-full px-3 py-1 text-xs font-medium sm:inline ${
         ig.connected
-          ? "bg-emerald-50 text-emerald-700"
-          : "bg-slate-100 text-slate-500"
+          ? "bg-emerald-50 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+          : "bg-hover text-muted"
       }`}
     >
       {ig.connected
@@ -88,6 +89,8 @@ function Composer({
   const [base64, setBase64] = useState<string | null>(null);
   const [contentType, setContentType] = useState("image/jpeg");
   const [busy, setBusy] = useState(false);
+  const [scheduleBusy, setScheduleBusy] = useState(false);
+  const [scheduledAt, setScheduledAt] = useState("");
   const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);
   const [aiNote, setAiNote] = useState("");
   const [aiBusy, setAiBusy] = useState(false);
@@ -138,15 +141,34 @@ function Composer({
     }
   };
 
+  const addToQueue = async () => {
+    if (!base64 || !scheduledAt) return;
+    setScheduleBusy(true);
+    setResult(null);
+    try {
+      await api.igSchedule(brandId, {
+        caption: caption || undefined,
+        imageBase64: base64,
+        contentType,
+        scheduledAt: new Date(scheduledAt).toISOString(),
+      });
+      setResult({ ok: true, msg: "Added to queue!" });
+    } catch (e) {
+      setResult({ ok: false, msg: (e as Error).message });
+    } finally {
+      setScheduleBusy(false);
+    }
+  };
+
   return (
     <div className="space-y-5">
       {igError && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          Couldn’t check the Instagram connection. Try again shortly.
+        <div className="rounded-xl border border-red-200 dark:border-red-500/30 bg-red-50 dark:bg-red-500/10 px-4 py-3 text-sm text-red-700 dark:text-red-400">
+          Couldn't check the Instagram connection. Try again shortly.
         </div>
       )}
       {ig && !ig.connected && !igError && (
-        <div className="flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-amber-200 dark:border-amber-400/20 bg-amber-50 dark:bg-amber-400/10 px-4 py-3 text-sm text-amber-800 dark:text-amber-200">
           <span>Connect Instagram to publish.</span>
           <Link
             to="/settings"
@@ -159,11 +181,12 @@ function Composer({
 
       <Card className="p-5">
         {/* AI assist — the AI-first centerpiece */}
-        <div className="mb-5 rounded-xl border border-brand-100 bg-brand-50 p-4">
-          <div className="flex items-center gap-2 text-sm font-medium text-brand-700">
-            <span aria-hidden>✨</span> AI assist
+        <div className="mb-5 rounded-xl border border-accent-line bg-accent-soft p-4">
+          <div className="flex items-center gap-2 text-sm font-medium text-accent-soft-fg">
+            <Sparkles className="h-4 w-4" aria-hidden />
+            AI assist
           </div>
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-1 text-xs text-muted">
             Draft a caption in your brand voice, then refine it below.
           </p>
           <Button
@@ -173,14 +196,21 @@ function Composer({
             disabled={aiBusy}
             className="mt-3"
           >
-            {aiBusy ? "Generating…" : "Generate caption"}
+            {aiBusy ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden />
+                Generating…
+              </>
+            ) : (
+              "Generate caption"
+            )}
           </Button>
-          {aiNote && <p className="mt-2 text-xs text-slate-500">{aiNote}</p>}
+          {aiNote && <p className="mt-2 text-xs text-muted">{aiNote}</p>}
         </div>
 
         <label
           htmlFor="compose-caption"
-          className="mb-1.5 block text-sm font-medium text-slate-700"
+          className="mb-1.5 block text-sm font-medium text-ink"
         >
           Caption
         </label>
@@ -193,7 +223,7 @@ function Composer({
         />
 
         <div className="mt-4">
-          <span className="mb-1.5 block text-sm font-medium text-slate-700">
+          <span className="mb-1.5 block text-sm font-medium text-ink">
             Image
           </span>
           <input
@@ -208,11 +238,11 @@ function Composer({
               <img
                 src={preview}
                 alt="Selected post preview"
-                className="max-h-64 rounded-lg border border-slate-200"
+                className="max-h-64 rounded-lg border border-line"
               />
               <button
                 onClick={() => fileRef.current?.click()}
-                className="mt-2 block text-xs text-brand-600 hover:underline"
+                className="mt-2 block text-xs text-accent hover:underline outline-none focus-visible:ring-2 focus-visible:ring-brand-100 rounded"
               >
                 Replace image
               </button>
@@ -220,11 +250,9 @@ function Composer({
           ) : (
             <button
               onClick={() => fileRef.current?.click()}
-              className="flex w-full flex-col items-center justify-center rounded-lg border-2 border-dashed border-slate-300 py-10 text-sm text-slate-400 outline-none hover:border-brand-400 hover:text-brand-500 focus-visible:ring-2 focus-visible:ring-brand-100"
+              className="flex w-full flex-col items-center justify-center rounded-lg border-2 border-dashed border-line-strong py-10 text-sm text-faint outline-none hover:border-brand-400 hover:text-accent focus-visible:ring-2 focus-visible:ring-brand-100"
             >
-              <span className="text-2xl" aria-hidden>
-                ＋
-              </span>
+              <Plus className="h-6 w-6 mb-1" aria-hidden />
               Click to upload an image
             </button>
           )}
@@ -235,20 +263,63 @@ function Composer({
             role="status"
             className={`mt-4 break-all rounded-lg px-3 py-2 text-sm ${
               result.ok
-                ? "bg-emerald-50 text-emerald-700"
-                : "bg-red-50 text-red-700"
+                ? "bg-emerald-50 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                : "bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400"
             }`}
           >
             {result.msg}
           </div>
         )}
 
-        <div className="mt-5 flex justify-end gap-3">
+        {/* Schedule affordance — pick a time and queue it instead of publishing now */}
+        <div className="mt-5 rounded-xl border border-line bg-surface p-4">
+          <label
+            htmlFor="compose-schedule-at"
+            className="mb-1.5 flex items-center gap-2 text-sm font-medium text-ink"
+          >
+            <CalendarClock className="h-4 w-4 text-muted" aria-hidden />
+            Schedule for later
+          </label>
+          <input
+            id="compose-schedule-at"
+            type="datetime-local"
+            value={scheduledAt}
+            onChange={(e) => setScheduledAt(e.target.value)}
+            min={new Date(Date.now() + 60_000).toISOString().slice(0, 16)}
+            className="block w-full rounded-lg border border-line bg-canvas px-3 py-2 text-sm text-ink outline-none focus:ring-2 focus:ring-brand-100"
+          />
+        </div>
+
+        <div className="mt-4 flex flex-wrap justify-end gap-3">
+          <Button
+            variant="secondary"
+            disabled={scheduleBusy || !base64 || !ig?.connected || !scheduledAt}
+            onClick={addToQueue}
+          >
+            {scheduleBusy ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden />
+                Scheduling…
+              </>
+            ) : (
+              <>
+                <CalendarClock className="h-4 w-4" aria-hidden />
+                Add to queue
+              </>
+            )}
+          </Button>
           <Button
             disabled={busy || !base64 || !ig?.connected}
             onClick={publish}
           >
-            {busy ? "Publishing…" : "Publish to Instagram"}
+            {busy ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden />
+                Publishing…
+              </>
+            ) : (
+              "Publish to Instagram"
+            )}
           </Button>
         </div>
       </Card>

@@ -2,7 +2,7 @@
 name: deployment-engineer
 description: Builds and deploys marketing-harness to inflxr.com on the shared production droplet (the same host as tradex + hiredesq) via the deploy/ rsync pipeline — local build, rsync, droplet docker compose build, and post-deploy verification. Migrations run on container boot (raw pg, no separate step). Knows the shared-proxy / shared-Postgres topology, the single-container model, and the one-time setup gotchas. Use when asked to deploy, redeploy, ship, or push the app to the server, or to roll back.
 tools: Read, Grep, Glob, Bash
-model: inherit
+model: claude-sonnet-4-6
 ---
 
 You are the deployment engineer for marketing-harness. You ship the app to

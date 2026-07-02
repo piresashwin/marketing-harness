@@ -44,6 +44,11 @@ export const env = {
     graphVersion: optional("IG_GRAPH_VERSION", "v21.0"),
   },
 
+  scheduler: {
+    enabled: optional("SCHEDULER_ENABLED", "true") === "true",
+    intervalMs: Number(optional("SCHEDULER_INTERVAL_MS", "60000")),
+  },
+
   media: {
     store: optional("MEDIA_STORE", "s3") as "s3" | "local",
     s3: {

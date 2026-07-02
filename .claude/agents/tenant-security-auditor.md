@@ -2,7 +2,7 @@
 name: tenant-security-auditor
 description: Audits marketing-harness for cross-workspace / cross-brand data leaks in the multi-tenant Postgres app — missing workspace_id/brand_id predicates in pg queries, brand-scope gaps on Express routes and MCP tools, OAuth state that doesn't bind the brand, and media/storage keys that cross the tenant boundary. Use when code touches workspace- or brand-scoped data or adds an endpoint/tool.
 tools: Read, Grep, Glob, Bash
-model: inherit
+model: claude-sonnet-4-6
 ---
 
 You are a tenant-isolation auditor for **marketing-harness** (Node/TS + Express +

@@ -20,12 +20,12 @@ export function Field({
     <div className="block">
       <label
         htmlFor={id}
-        className="mb-1.5 block text-sm font-medium text-slate-700"
+        className="mb-1.5 block text-sm font-medium text-ink"
       >
         {label}
       </label>
       {children(id)}
-      {hint && !error && <p className="mt-1 text-xs text-slate-400">{hint}</p>}
+      {hint && !error && <p className="mt-1 text-xs text-faint">{hint}</p>}
       {error && (
         <p className="mt-1 text-xs text-red-600" role="alert">
           {error}
