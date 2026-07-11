@@ -103,8 +103,15 @@ if [ ! -f "$ENVFILE" ]; then
 fi
 missing=""
 # Keys with no safe default — the app cannot publish to Instagram without them.
-for k in DATABASE_URL PUBLIC_BASE_URL APP_ENCRYPTION_KEY IG_CLIENT_ID IG_CLIENT_SECRET \
-         S3_ACCESS_KEY_ID S3_SECRET_ACCESS_KEY S3_BUCKET S3_PUBLIC_BASE_URL RESEND_API_KEY; do
+required="DATABASE_URL PUBLIC_BASE_URL APP_ENCRYPTION_KEY IG_CLIENT_ID IG_CLIENT_SECRET RESEND_API_KEY"
+# S3 creds are only needed when the media store is s3 (env.ts defaults MEDIA_STORE
+# to s3, so treat an unset value as s3). A local store serves /media from the
+# container and needs none of them.
+media_store="$(grep -E '^MEDIA_STORE=' "$ENVFILE" | head -n1 | cut -d= -f2- || true)"
+if [ "${media_store:-s3}" = "s3" ]; then
+  required="$required S3_ACCESS_KEY_ID S3_SECRET_ACCESS_KEY S3_BUCKET S3_PUBLIC_BASE_URL"
+fi
+for k in $required; do
   grep -qE "^${k}=.+" "$ENVFILE" || missing="$missing $k"
 done
 if [ -n "$missing" ]; then
