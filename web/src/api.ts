@@ -238,6 +238,86 @@ export interface ContentPlan {
   items: ContentPlanItem[];
 }
 
+// ── Brand Brain ───────────────────────────────────────────────────────
+export type BrainItemStatus = "active" | "applied" | "dismissed";
+
+export interface BrainPattern {
+  id: string;
+  title: string;
+  evidence: string;
+  impact: "High" | "Medium" | "Low";
+  status: BrainItemStatus;
+}
+
+export interface BrainSuggestion {
+  id: string;
+  title: string;
+  description: string;
+  status: BrainItemStatus;
+}
+
+export interface BrainExample {
+  id: string;
+  caption: string;
+  metric: string;
+  annotation: string;
+  status: BrainItemStatus;
+}
+
+export interface BrainCandidate {
+  caption: string;
+  metric: string;
+}
+
+export interface Brain {
+  patterns: BrainPattern[];
+  suggestions: BrainSuggestion[];
+  examples: BrainExample[];
+  strength: number;
+  lastLearnedAt: string | null;
+  hasAnalytics: boolean;
+  candidates: BrainCandidate[];
+}
+
+// ── Goal-driven mode ──────────────────────────────────────────────────
+export interface GoalPlanStep {
+  title: string;
+  why: string;
+  pillar: string;
+  format: "Reel" | "Carousel" | "Single" | "Story";
+  dayOffset: number;
+  time: string | null;
+  hook: string;
+}
+
+export interface GoalPlan {
+  summary: string;
+  steps: GoalPlanStep[];
+}
+
+export interface GoalRun {
+  id: string;
+  goal: string;
+  status: string;
+  plan: GoalPlan;
+  createdAt: string;
+}
+
+export interface GoalRunSummary {
+  id: string;
+  goal: string;
+  status: string;
+  stepCount: number;
+  createdAt: string;
+}
+
+export interface DraftPost {
+  id: string;
+  caption: string | null;
+  scheduledAt: string | null;
+  goalRunId: string | null;
+}
+
 export type PlatformKey = "instagram" | "linkedin" | "facebook";
 
 export interface PlatformSetting {
@@ -636,6 +716,104 @@ export const api = {
     request<ContentPlan>(`/api/brands/${brandId}/ai/content-plan`, {
       method: "POST",
       body: JSON.stringify(body),
+    }),
+
+  // ── Goal-driven mode (brand-scoped) ──────────────────────────────────
+  /** State an outcome; the AI proposes an approvable Intent Preview. */
+  proposeGoal: async (brandId: string, goal: string): Promise<GoalRun> => {
+    const raw = await request<{ id: unknown; goal: string; status: string; plan: GoalPlan; createdAt: string }>(
+      `/api/brands/${brandId}/goals`,
+      { method: "POST", body: JSON.stringify({ goal }) },
+    );
+    return { ...raw, id: String(raw.id) };
+  },
+  /** Recent goal runs (action log) + current drafts. */
+  listGoals: async (
+    brandId: string,
+  ): Promise<{ runs: GoalRunSummary[]; drafts: DraftPost[] }> => {
+    const raw = await request<{
+      runs: { id: unknown; goal: string; status: string; stepCount: number; createdAt: string }[];
+      drafts: { id: unknown; caption: string | null; scheduledAt: string | null; goalRunId: unknown | null }[];
+    }>(`/api/brands/${brandId}/goals`);
+    return {
+      runs: raw.runs.map((r) => ({ ...r, id: String(r.id) })),
+      drafts: raw.drafts.map((d) => ({
+        ...d,
+        id: String(d.id),
+        goalRunId: d.goalRunId != null ? String(d.goalRunId) : null,
+      })),
+    };
+  },
+  /** Approve a proposed run — materializes its steps as draft posts. */
+  approveGoal: (
+    brandId: string,
+    runId: string,
+  ) =>
+    request<{ run: GoalRun; createdDraftIds: string[] }>(
+      `/api/brands/${brandId}/goals/${runId}/approve`,
+      { method: "POST" },
+    ),
+  /** Discard a proposed/approved run and delete its still-draft posts. */
+  discardGoal: (brandId: string, runId: string) =>
+    request<{ run: GoalRun }>(`/api/brands/${brandId}/goals/${runId}/discard`, {
+      method: "POST",
+    }),
+  /** Load a single draft's caption etc. for Compose prefill. */
+  getDraft: async (brandId: string, postId: string): Promise<DraftPost> => {
+    const raw = await request<{ id: unknown; caption: string | null; scheduledAt: string | null; goalRunId: unknown | null }>(
+      `/api/brands/${brandId}/goals/drafts/${postId}`,
+    );
+    return { ...raw, id: String(raw.id), goalRunId: raw.goalRunId != null ? String(raw.goalRunId) : null };
+  },
+  /** Delete a draft outright. */
+  deleteDraft: (brandId: string, postId: string) =>
+    request<{ ok: boolean }>(`/api/brands/${brandId}/goals/drafts/${postId}`, {
+      method: "DELETE",
+    }),
+  /** Complete a draft with media + a schedule time (same row → scheduled). */
+  promoteDraft: (
+    brandId: string,
+    postId: string,
+    payload: { caption?: string; imageBase64: string; contentType: string; scheduledAt: string },
+  ) =>
+    request<{ ok: boolean }>(`/api/brands/${brandId}/goals/drafts/${postId}/promote`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+
+  // ── Brand Brain (brand-scoped) ───────────────────────────────────────
+  getBrain: (brandId: string) => request<Brain>(`/api/brands/${brandId}/brain`),
+  /** Derive fresh items from the latest analytics and upsert them. */
+  relearnBrain: (brandId: string) =>
+    request<Brain>(`/api/brands/${brandId}/brain/relearn`, { method: "POST" }),
+  brainItemApply: (brandId: string, itemId: string) =>
+    request<Brain>(`/api/brands/${brandId}/brain/items/${itemId}/apply`, {
+      method: "POST",
+    }),
+  brainItemDismiss: (brandId: string, itemId: string) =>
+    request<Brain>(`/api/brands/${brandId}/brain/items/${itemId}/dismiss`, {
+      method: "POST",
+    }),
+  brainItemUndo: (brandId: string, itemId: string) =>
+    request<Brain>(`/api/brands/${brandId}/brain/items/${itemId}/undo`, {
+      method: "POST",
+    }),
+  updateBrainExample: (brandId: string, itemId: string, annotation: string) =>
+    request<Brain>(`/api/brands/${brandId}/brain/items/${itemId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ annotation }),
+    }),
+  addBrainExample: (
+    brandId: string,
+    input: { caption: string; metric?: string; annotation?: string },
+  ) =>
+    request<Brain>(`/api/brands/${brandId}/brain/examples`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  deleteBrainItem: (brandId: string, itemId: string) =>
+    request<Brain>(`/api/brands/${brandId}/brain/items/${itemId}`, {
+      method: "DELETE",
     }),
 
   // ── Workspace connectors (AI providers) ─────────────────────────────

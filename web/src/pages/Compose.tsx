@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { CalendarClock, Loader2, Plus, Sparkles } from "lucide-react";
 import { api, type IgStatus } from "../api";
 import { useBrand } from "../brand";
@@ -22,6 +22,12 @@ export function Compose() {
   const { activeBrand, activeBrandId } = useBrand();
   const [ig, setIg] = useState<IgStatus | null>(null);
   const [igError, setIgError] = useState(false);
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+  const draftId =
+    (location.state as { draftId?: string } | null)?.draftId ??
+    searchParams.get("draftId") ??
+    null;
 
   const loadIg = useCallback(async () => {
     if (activeBrandId == null) {
@@ -52,7 +58,7 @@ export function Compose() {
           No active brand. Create one to start composing.
         </Card>
       ) : (
-        <Composer ig={ig} igError={igError} brandId={activeBrandId} />
+        <Composer ig={ig} igError={igError} brandId={activeBrandId} draftId={draftId} />
       )}
     </AppShell>
   );
@@ -79,10 +85,12 @@ function Composer({
   ig,
   igError,
   brandId,
+  draftId,
 }: {
   ig: IgStatus | null;
   igError: boolean;
   brandId: string;
+  draftId: string | null;
 }) {
   const [caption, setCaption] = useState("");
   const [preview, setPreview] = useState<string | null>(null);
@@ -94,7 +102,27 @@ function Composer({
   const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);
   const [aiNote, setAiNote] = useState("");
   const [aiBusy, setAiBusy] = useState(false);
+  const [draftLoadError, setDraftLoadError] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // Prefill the caption from the draft this Compose session is finishing
+  // (e.g. from a goal plan's Intent Preview). Scheduling below promotes the
+  // SAME draft row rather than creating a new one, so nothing is orphaned.
+  useEffect(() => {
+    if (!draftId) return;
+    let cancelled = false;
+    api
+      .getDraft(brandId, draftId)
+      .then((draft) => {
+        if (!cancelled) setCaption(draft.caption ?? "");
+      })
+      .catch(() => {
+        if (!cancelled) setDraftLoadError(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [brandId, draftId]);
 
   const pick = async (file?: File) => {
     if (!file) return;
@@ -130,6 +158,11 @@ function Composer({
         imageBase64: base64,
         contentType,
       });
+      // Publishing immediately supersedes the draft it was finishing — delete
+      // the source draft row so it doesn't linger in the queue as an orphan.
+      if (draftId) {
+        await api.deleteDraft(brandId, draftId).catch(() => {});
+      }
       setResult({
         ok: true,
         msg: r.permalink ? `Published → ${r.permalink}` : "Published!",
@@ -146,12 +179,22 @@ function Composer({
     setScheduleBusy(true);
     setResult(null);
     try {
-      await api.igSchedule(brandId, {
-        caption: caption || undefined,
-        imageBase64: base64,
-        contentType,
-        scheduledAt: new Date(scheduledAt).toISOString(),
-      });
+      if (draftId) {
+        // Promote the SAME draft row to scheduled — no new row, no orphan.
+        await api.promoteDraft(brandId, draftId, {
+          caption: caption || undefined,
+          imageBase64: base64,
+          contentType,
+          scheduledAt: new Date(scheduledAt).toISOString(),
+        });
+      } else {
+        await api.igSchedule(brandId, {
+          caption: caption || undefined,
+          imageBase64: base64,
+          contentType,
+          scheduledAt: new Date(scheduledAt).toISOString(),
+        });
+      }
       setResult({ ok: true, msg: "Added to queue!" });
     } catch (e) {
       setResult({ ok: false, msg: (e as Error).message });
@@ -162,6 +205,16 @@ function Composer({
 
   return (
     <div className="space-y-5">
+      {draftId && !draftLoadError && (
+        <div className="rounded-xl border border-accent-line bg-accent-soft px-4 py-3 text-sm text-accent-soft-fg">
+          Finishing a draft from your goal plan — pick an image and a time to add it to the queue.
+        </div>
+      )}
+      {draftLoadError && (
+        <div className="rounded-xl border border-red-200 dark:border-red-500/30 bg-red-50 dark:bg-red-500/10 px-4 py-3 text-sm text-red-700 dark:text-red-400">
+          Couldn't load that draft. You can still write a new post below.
+        </div>
+      )}
       {igError && (
         <div className="rounded-xl border border-red-200 dark:border-red-500/30 bg-red-50 dark:bg-red-500/10 px-4 py-3 text-sm text-red-700 dark:text-red-400">
           Couldn't check the Instagram connection. Try again shortly.

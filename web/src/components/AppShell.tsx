@@ -2,6 +2,7 @@ import { type ComponentType, type ReactNode } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
   BarChart2,
+  Brain,
   CalendarClock,
   CalendarRange,
   Check,
@@ -11,6 +12,7 @@ import {
   Settings as SettingsIcon,
   Sparkles,
   Tag,
+  Target,
 } from "lucide-react";
 import { useAuth } from "../auth";
 import { useBrand } from "../brand";
@@ -30,7 +32,9 @@ const NAV: { to: string; label: string; icon: ComponentType<{ className?: string
   { to: "/home", label: "Home", icon: Home },
   { to: "/compose", label: "Compose", icon: Sparkles },
   { to: "/plan", label: "Plan", icon: CalendarRange },
+  { to: "/goal", label: "Goal", icon: Target },
   { to: "/calendar", label: "Calendar", icon: CalendarClock },
+  { to: "/brain", label: "Brand Brain", icon: Brain },
   { to: "/analytics", label: "Analytics", icon: BarChart2 },
   { to: "/brands", label: "Brands", icon: Tag },
   { to: "/settings", label: "Settings", icon: SettingsIcon },

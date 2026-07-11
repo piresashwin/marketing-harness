@@ -417,4 +417,53 @@ export const MIGRATIONS: Migration[] = [
       END $$;
     `,
   },
+  {
+    id: 15,
+    name: "brand_brain",
+    sql: `
+      -- Persisted Brand Brain items derived from a brand's Instagram analytics.
+      -- kind: 'pattern' | 'suggestion' | 'example'; status: 'active' | 'applied' | 'dismissed'.
+      -- Applying an item is a reversible status flip — generation reads applied
+      -- items and injects them into the prompt (see buildProfileBlock).
+      CREATE TABLE IF NOT EXISTS brand_brain_items (
+        id          bigserial PRIMARY KEY,
+        brand_id    bigint NOT NULL REFERENCES brands(id) ON DELETE CASCADE,
+        kind        text NOT NULL,
+        data        jsonb NOT NULL DEFAULT '{}'::jsonb,
+        status      text NOT NULL DEFAULT 'active',
+        dedup_key   text NOT NULL,
+        created_at  timestamptz NOT NULL DEFAULT now(),
+        updated_at  timestamptz NOT NULL DEFAULT now(),
+        UNIQUE (brand_id, kind, dedup_key)
+      );
+      CREATE INDEX IF NOT EXISTS brand_brain_items_brand_idx ON brand_brain_items(brand_id, kind, status);
+    `,
+  },
+  {
+    id: 16,
+    name: "goal_driven_mode",
+    sql: `
+      -- Goal-driven mode: the user states an outcome, an AI proposes an
+      -- approvable plan (an "Intent Preview"); on approval the plan is
+      -- materialized as status='draft' posts in the brand's queue.
+      -- status: 'proposed' | 'approved' | 'discarded'. plan is the bounded
+      -- GoalPlan JSON (summary + steps) returned by generateGoalPlan.
+      CREATE TABLE IF NOT EXISTS goal_runs (
+        id bigserial PRIMARY KEY,
+        brand_id bigint NOT NULL REFERENCES brands(id) ON DELETE CASCADE,
+        goal text NOT NULL,
+        status text NOT NULL DEFAULT 'proposed',
+        plan jsonb NOT NULL DEFAULT '{}'::jsonb,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS goal_runs_brand_idx ON goal_runs(brand_id, status);
+
+      -- Ties a 'draft' post back to the goal run that created it, so discard
+      -- can clean up its still-draft posts without touching posts the user has
+      -- since moved on with (scheduled/published etc). NULL for posts not
+      -- created via goal-driven mode.
+      ALTER TABLE posts ADD COLUMN IF NOT EXISTS goal_run_id bigint REFERENCES goal_runs(id) ON DELETE SET NULL;
+    `,
+  },
 ];

@@ -17,6 +17,8 @@ import {
 import { loadBrandDetail } from "../api/routes.js";
 import { env } from "../config/env.js";
 import { listReviewQueue, approvePost } from "../posts/review.js";
+import { getBrain, relearn } from "../brain/service.js";
+import { proposeGoal, approveGoal } from "../goals/service.js";
 
 // MCP tools are reached over POST /mcp, which is now protected by OAuth 2.1
 // bearer auth (see requireBearerAuth in src/index.ts). The authenticated user id
@@ -581,6 +583,57 @@ export function createMcpServer(userId: number): McpServer {
   );
 
   server.registerTool(
+    "get_brand_brain",
+    {
+      title: "Get brand brain",
+      description:
+        "Returns the brand's Brand Brain: metric-grounded patterns and suggestions learned from its Instagram results (with apply/dismiss status), voice examples drawn from its real top posts, a learning-strength score, and candidate top posts not yet promoted to an example. Applied items are already fed into every generation (captions, content plans) — this tool is for inspecting the brain, not for generating content.",
+      inputSchema: {
+        brand_id: z.number().int().describe(BRAND_ID_DESC),
+      },
+    },
+    async ({ brand_id }) => {
+      try {
+        await assertBrandOwned(userId, brand_id);
+        return json(await getBrain(brand_id));
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "relearn_brand_brain",
+    {
+      title: "Re-learn the brand brain from latest analytics",
+      description:
+        "Derives fresh patterns, suggestions, and voice examples from the brand's latest stored Instagram analytics snapshot and upserts them into the brand brain (new items only — a previously dismissed or applied item keeps the user's decision). Requires an existing analytics snapshot (pull one with ig_analytics first). Uses the workspace's BYO Claude key and spends its credits.",
+      inputSchema: {
+        brand_id: z.number().int().describe(BRAND_ID_DESC),
+      },
+    },
+    async ({ brand_id }) => {
+      try {
+        await assertBrandOwned(userId, brand_id);
+        return json(await relearn(brand_id));
+      } catch (e) {
+        if ((e as Error).message === "no_analytics") {
+          return {
+            isError: true,
+            content: [
+              {
+                type: "text" as const,
+                text: "Error: no analytics snapshot yet — call ig_analytics first",
+              },
+            ],
+          };
+        }
+        return fail(e);
+      }
+    },
+  );
+
+  server.registerTool(
     "list_review_queue",
     {
       title: "List posts awaiting review",
@@ -626,6 +679,56 @@ export function createMcpServer(userId: number): McpServer {
                 type: "text" as const,
                 text: "Error: post not found or cannot be approved",
               },
+            ],
+          };
+        }
+        return fail(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "propose_goal_plan",
+    {
+      title: "Propose a goal-driven plan",
+      description:
+        "Turns a stated marketing outcome into an approvable Intent Preview — a one-line summary plus 8-12 concrete Instagram post steps over 14 days, grounded in the brand profile, its content pillars, and what's already worked for it. Persists the proposal as a goal run (status='proposed'); nothing is added to the queue yet — use approve_goal_plan to materialize it as draft posts. Uses the workspace's BYO Claude key and spends its credits.",
+      inputSchema: {
+        brand_id: z.number().int().describe(BRAND_ID_DESC),
+        goal: z.string().min(1).max(2000).describe("The outcome to plan toward, e.g. 'grow followers before our fall launch'"),
+      },
+    },
+    async ({ brand_id, goal }) => {
+      try {
+        await assertBrandOwned(userId, brand_id);
+        return json(await proposeGoal(brand_id, goal));
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "approve_goal_plan",
+    {
+      title: "Approve a goal-driven plan",
+      description:
+        "Approves a proposed goal run, materializing each of its plan steps as a status='draft' post (caption seeded from the step's hook, no media yet) in the brand's queue. Only valid for a run still in 'proposed' status. The user finishes each draft with media in Compose before it can be scheduled — this never auto-publishes.",
+      inputSchema: {
+        brand_id: z.number().int().describe(BRAND_ID_DESC),
+        run_id: z.number().int().describe("Goal run id returned by propose_goal_plan"),
+      },
+    },
+    async ({ brand_id, run_id }) => {
+      try {
+        await assertBrandOwned(userId, brand_id);
+        return json(await approveGoal(brand_id, run_id));
+      } catch (e) {
+        if ((e as Error).message === "not_found") {
+          return {
+            isError: true,
+            content: [
+              { type: "text" as const, text: "Error: run not found or not approvable" },
             ],
           };
         }

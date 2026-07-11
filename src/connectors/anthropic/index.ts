@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { pool } from "../../db/index.js";
 import { getConnectorApiKey } from "../workspace.js";
+import { instagram } from "../instagram/index.js";
 
 // BYOK Claude connector: uses the WORKSPACE's stored key, never an env key.
 // Per opus-4-8/4.6 constraints we do NOT send temperature/top_p/top_k or a
@@ -29,7 +30,9 @@ type TaskType =
   | "profile_draft"
   | "profile_extract"
   | "analytics_insights"
-  | "content_plan";
+  | "content_plan"
+  | "brand_brain"
+  | "goal_plan";
 
 interface TaskConfig {
   model: string;
@@ -54,6 +57,13 @@ const TASKS: Record<TaskType, TaskConfig> = {
   // Draft a ~2-week content plan from brand profile + pillars + user note →
   // structured JSON list → sonnet with generous output cap for 14 items.
   content_plan: { model: SONNET, maxTokens: 1500 },
+  // Derive metric-grounded patterns/suggestions/voice examples from an
+  // analytics summary → structured JSON lists → sonnet, similar cap to insights.
+  brand_brain: { model: SONNET, maxTokens: 1500 },
+  // Goal-driven mode: turn a stated outcome into an approvable, concrete
+  // Intent Preview (summary + 8-12 steps over 14 days) → light reasoning,
+  // structured JSON → sonnet with a cap similar to content_plan.
+  goal_plan: { model: SONNET, maxTokens: 1500 },
 };
 
 // The editable prose fields the Profile assist can draft / refine.
@@ -121,6 +131,15 @@ export async function validateKey(apiKey: string): Promise<void> {
   }
 }
 
+// Applied Brand Brain items, as read for prompt injection — the same bounded
+// shape the brand/service layer persists in `data`. Only status='applied' rows
+// are ever loaded here; applying/dismissing is a reversible status flip owned
+// by src/brain/service.ts, never a destructive profile mutation.
+interface AppliedBrainItem {
+  kind: "pattern" | "suggestion" | "example";
+  data: Record<string, unknown>;
+}
+
 interface BrandPromptContext {
   workspaceId: number;
   name: string;
@@ -129,6 +148,7 @@ interface BrandPromptContext {
   audience: string | null;
   voice: Record<string, unknown>;
   pillars: { name: string; description: string | null }[];
+  brainItems: AppliedBrainItem[];
 }
 
 async function loadBrandContext(brandId: number): Promise<BrandPromptContext> {
@@ -151,6 +171,10 @@ async function loadBrandContext(brandId: number): Promise<BrandPromptContext> {
     "SELECT name, description FROM content_pillars WHERE brand_id = $1 ORDER BY sort_order NULLS LAST, id",
     [brandId],
   );
+  const brainRes = await pool.query<{ kind: string; data: Record<string, unknown> }>(
+    "SELECT kind, data FROM brand_brain_items WHERE brand_id = $1 AND status = 'applied' ORDER BY id",
+    [brandId],
+  );
   return {
     workspaceId: rows[0].workspace_id,
     name: rows[0].name,
@@ -159,6 +183,7 @@ async function loadBrandContext(brandId: number): Promise<BrandPromptContext> {
     audience: rows[0].audience,
     voice: rows[0].voice ?? {},
     pillars: pillarRes.rows,
+    brainItems: brainRes.rows as AppliedBrainItem[],
   };
 }
 
@@ -189,6 +214,31 @@ function buildProfileBlock(ctx: BrandPromptContext): string {
         .map((p) => (p.description ? `${p.name} (${p.description})` : p.name))
         .join("; ")}.`,
     );
+  }
+  // Applied Brand Brain items — what the brand has learned from its own
+  // Instagram results, endorsed by the user (Apply/Approve). Bounded and
+  // capped so this stays a small, stable addition to the cached prefix.
+  const patterns = ctx.brainItems.filter((i) => i.kind === "pattern").slice(0, 6);
+  const suggestions = ctx.brainItems.filter((i) => i.kind === "suggestion").slice(0, 5);
+  const examples = ctx.brainItems.filter((i) => i.kind === "example").slice(0, 4);
+  if (patterns.length || suggestions.length) {
+    lines.push("What works for this brand (learned from its own results):");
+    for (const p of patterns) {
+      const title = clip(String(p.data.title ?? ""), 140);
+      if (title) lines.push(`- ${title}`);
+    }
+    for (const s of suggestions) {
+      const title = clip(String(s.data.title ?? ""), 140);
+      if (title) lines.push(`- ${title}`);
+    }
+  }
+  if (examples.length) {
+    lines.push("Voice examples (real top posts to write like):");
+    for (const e of examples) {
+      const caption = clip(String(e.data.caption ?? "").replace(/\s+/g, " "), 240);
+      const annotation = clip(String(e.data.annotation ?? ""), 160);
+      if (caption) lines.push(`- "${caption}"${annotation ? ` — ${annotation}` : ""}`);
+    }
   }
   return lines.join("\n");
 }
@@ -266,6 +316,23 @@ function buildTaskInstruction(taskType: TaskType, input: TaskInput): string {
         "Guidance: items = 10–14 post ideas spanning 14 days. pillar = name of one of the brand's content pillars (use the exact names from the profile). format = one of: Reel, Carousel, Single, Story. dayOffset = integer 0–13 (0 = day 1). time = suggested posting time as HH:MM (24 h) or null. hook = one crisp sentence capturing the post idea in the brand's voice.",
         "Distribute pillars in rough proportion to their ratios. Vary formats. Keep hooks specific and actionable — not generic.",
         "Do not invent pillar names not present in the brand profile.",
+      ].join("\n");
+    case "brand_brain":
+      return [
+        "The user message is a summary of this brand's recent Instagram analytics, including its top posts by engagement.",
+        "Acting as the brand's social strategist, mine it for what actually works and return ONLY valid minified JSON (no code fence, no commentary) with exactly these keys:",
+        '{"patterns":[{"title":string,"evidence":string,"impact":"High"|"Medium"|"Low"}],"suggestions":[{"title":string,"description":string}],"examples":[{"caption":string,"metric":string,"annotation":string}]}',
+        "Guidance: patterns = up to 6 metric-grounded observations, each citing the specific number/metric behind it (e.g. \"posts opening with a question average 2.3x the saves\"). suggestions = up to 5 concrete, actionable recommendations that follow from the patterns. examples = up to 4 REAL top posts chosen from the summary's list — copy their exact caption text and metric as given, and write a short annotation explaining why that post worked.",
+        "Never invent a caption or metric not present in the summary's top-posts list. If there isn't enough data for a section, return fewer items (or an empty array) rather than guessing.",
+      ].join("\n");
+    case "goal_plan":
+      return [
+        "The user message states a marketing outcome the brand wants to achieve.",
+        "Acting as the brand's social strategist, propose a concrete, approvable plan of Instagram posts toward that goal, grounded in the brand profile, its content pillars, and what has already worked for this brand above.",
+        "Return ONLY valid minified JSON (no code fence, no commentary) with exactly this shape:",
+        '{"summary":string,"steps":[{"title":string,"why":string,"pillar":string,"format":"Reel"|"Carousel"|"Single"|"Story","dayOffset":number,"time":string|null,"hook":string}]}',
+        "Guidance: summary = one line describing the overall approach. steps = 8–12 concrete posts spanning 14 days. title = a short label for the step. why = one sentence citing the brand/goal rationale for this step (not generic). pillar = name of one of the brand's content pillars (use the exact names from the profile). format = one of: Reel, Carousel, Single, Story. dayOffset = integer 0–13 (0 = day 1). time = suggested posting time as HH:MM (24 h) or null. hook = one crisp caption seed in the brand's voice.",
+        "Do not invent pillar names not present in the brand profile. Keep every field concise and specific to this goal — not generic advice.",
       ].join("\n");
   }
 }
@@ -580,7 +647,7 @@ function postEngagement(p: AnalyticsSnapshotInput["posts"][number]): number {
 
 // Compact, bounded plain-text summary (fits the user-note budget). Top posts
 // only, captions clipped — enough signal for the model without dumping raw JSON.
-function buildAnalyticsSummary(
+export function buildAnalyticsSummary(
   s: AnalyticsSnapshotInput,
   deltas: AnalyticsDeltasInput | null,
 ): string {
@@ -748,6 +815,175 @@ export async function generateContentPlan(
     userNote: opts.note?.trim() || "No specific events. Plan a balanced 2-week calendar.",
   });
   return parseContentPlan(raw);
+}
+
+// ── Brand Brain derivation ─────────────────────────────────────────────
+// Mines the brand's latest Instagram analytics snapshot for metric-grounded
+// patterns, concrete suggestions, and real top posts worth promoting as voice
+// examples. Routed through runTask() — same BYOK key resolution and cacheable
+// brand-profile prefix as every other generation. Persistence (upsert, status,
+// dedup) lives in src/brain/service.ts, not here.
+
+export interface BrandBrainDraft {
+  patterns: { title: string; evidence: string; impact: "High" | "Medium" | "Low" }[];
+  suggestions: { title: string; description: string }[];
+  examples: { caption: string; metric: string; annotation: string }[];
+}
+
+const IMPACT_LEVELS = new Set(["High", "Medium", "Low"]);
+
+/** Parse + bound the model's brand-brain JSON. Never trusts the shape blindly. */
+function parseBrandBrain(raw: string): BrandBrainDraft {
+  let txt = raw.trim();
+  const fence = txt.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence) txt = fence[1].trim();
+  let obj: Record<string, unknown>;
+  try {
+    obj = JSON.parse(txt) as Record<string, unknown>;
+  } catch {
+    throw new Error("AI generation failed");
+  }
+  const str = (v: unknown, max: number): string =>
+    typeof v === "string" ? clip(v, max) : "";
+  const row = (v: unknown): Record<string, unknown> => (v ?? {}) as Record<string, unknown>;
+
+  const patterns = (Array.isArray(obj.patterns) ? obj.patterns.slice(0, 6) : [])
+    .map((v) => {
+      const r = row(v);
+      const impact = String(r.impact ?? "");
+      return {
+        title: str(r.title, 140),
+        evidence: str(r.evidence, 400),
+        impact: (IMPACT_LEVELS.has(impact) ? impact : "Medium") as "High" | "Medium" | "Low",
+      };
+    })
+    .filter((p) => p.title);
+
+  const suggestions = (Array.isArray(obj.suggestions) ? obj.suggestions.slice(0, 5) : [])
+    .map((v) => {
+      const r = row(v);
+      return { title: str(r.title, 140), description: str(r.description, 300) };
+    })
+    .filter((s) => s.title);
+
+  const examples = (Array.isArray(obj.examples) ? obj.examples.slice(0, 4) : [])
+    .map((v) => {
+      const r = row(v);
+      return {
+        caption: str(r.caption, 600),
+        metric: str(r.metric, 100),
+        annotation: str(r.annotation, 240),
+      };
+    })
+    .filter((e) => e.caption);
+
+  return { patterns, suggestions, examples };
+}
+
+/**
+ * Derive Brand Brain patterns/suggestions/voice examples from the brand's
+ * latest stored Instagram analytics snapshot. Throws "no_analytics" if none
+ * exists yet — the caller (REST/MCP) maps that to a clear prompt to pull
+ * analytics first. Returns a bounded, structured draft; nothing is persisted
+ * here (see src/brain/service.ts for the upsert).
+ */
+export async function deriveBrandBrain(brandId: number): Promise<BrandBrainDraft> {
+  const result = await instagram.latestAnalytics(brandId);
+  if (!result) throw new Error("no_analytics");
+  const ctx = await loadBrandContext(brandId);
+  const { apiKey, modelOverride } = await loadKeyAndOverride(ctx);
+  const raw = await runTask("brand_brain", {
+    ctx,
+    apiKey,
+    modelOverride,
+    userNote: buildAnalyticsSummary(result.snapshot, result.deltas),
+  });
+  return parseBrandBrain(raw);
+}
+
+// ── Goal-driven mode ────────────────────────────────────────────────────
+// Turns a stated outcome into an approvable Intent Preview: a one-line
+// summary plus 8-12 concrete post steps over 14 days. Routed through
+// runTask() — same BYOK key resolution and cacheable brand-profile prefix
+// (incl. applied Brand Brain items) as content_plan. Nothing is persisted
+// here — see src/goals/service.ts for propose/approve/discard.
+
+export interface GoalPlanStep {
+  title: string;
+  why: string;
+  pillar: string;
+  format: "Reel" | "Carousel" | "Single" | "Story";
+  dayOffset: number;
+  time: string | null;
+  hook: string;
+}
+
+export interface GoalPlan {
+  summary: string;
+  steps: GoalPlanStep[];
+}
+
+/** Parse + bound the model's goal-plan JSON. Never trusts the shape blindly. */
+function parseGoalPlan(raw: string): GoalPlan {
+  let txt = raw.trim();
+  const fence = txt.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence) txt = fence[1].trim();
+  let obj: Record<string, unknown>;
+  try {
+    obj = JSON.parse(txt) as Record<string, unknown>;
+  } catch {
+    throw new Error("AI generation failed");
+  }
+  const str = (v: unknown, max: number): string =>
+    typeof v === "string" ? clip(v, max) : "";
+  const steps: GoalPlanStep[] = Array.isArray(obj.steps)
+    ? obj.steps
+        .slice(0, 12)
+        .map((v) => {
+          const r = (v ?? {}) as Record<string, unknown>;
+          const fmt = String(r.format ?? "");
+          const offset =
+            typeof r.dayOffset === "number"
+              ? Math.max(0, Math.min(13, Math.round(r.dayOffset)))
+              : 0;
+          const rawTime = typeof r.time === "string" ? r.time.trim() : null;
+          const time =
+            rawTime && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(rawTime) ? rawTime : null;
+          return {
+            title: str(r.title, 140),
+            why: str(r.why, 300),
+            pillar: str(r.pillar, 80),
+            format: VALID_FORMATS.has(fmt)
+              ? (fmt as GoalPlanStep["format"])
+              : "Single",
+            dayOffset: offset,
+            time,
+            hook: str(r.hook, 300),
+          };
+        })
+        .filter((x) => x.hook)
+    : [];
+  return { summary: str(obj.summary, 300), steps };
+}
+
+/**
+ * Generate an Intent Preview plan for a brand goal, grounded in its profile,
+ * content pillars, and what's already worked (applied Brand Brain items).
+ * Returns a bounded, structured object; nothing is persisted.
+ */
+export async function generateGoalPlan(
+  brandId: number,
+  opts: { goal: string },
+): Promise<GoalPlan> {
+  const ctx = await loadBrandContext(brandId);
+  const { apiKey, modelOverride } = await loadKeyAndOverride(ctx);
+  const raw = await runTask("goal_plan", {
+    ctx,
+    apiKey,
+    modelOverride,
+    userNote: opts.goal.trim(),
+  });
+  return parseGoalPlan(raw);
 }
 
 export type { ProfileField };

@@ -9,7 +9,9 @@ import { Brands } from "./pages/Brands";
 import { BrandSettings } from "./pages/BrandSettings";
 import { Settings } from "./pages/Settings";
 import { Plan } from "./pages/Plan";
+import { Goal } from "./pages/Goal";
 import { Queue } from "./pages/Queue";
+import { BrandBrain } from "./pages/BrandBrain";
 import { Review } from "./pages/Review";
 import { ClientReview } from "./pages/ClientReview";
 
@@ -65,6 +67,7 @@ export function App() {
       <Route path="/home" element={requireApp(<BrandHome />)} />
       <Route path="/compose" element={requireApp(<Compose />)} />
       <Route path="/plan" element={requireApp(<Plan />)} />
+      <Route path="/goal" element={requireApp(<Goal />)} />
       <Route path="/analytics" element={requireApp(<InstagramAnalytics />)} />
       <Route path="/brands" element={requireApp(<Brands />)} />
       <Route
@@ -72,6 +75,7 @@ export function App() {
         element={requireApp(<BrandSettings />)}
       />
       <Route path="/calendar" element={requireApp(<Queue />)} />
+      <Route path="/brain" element={requireApp(<BrandBrain />)} />
       <Route path="/posts/:postId/review" element={requireApp(<Review />)} />
       <Route path="/settings" element={requireApp(<Settings />)} />
       {/* Legacy paths */}

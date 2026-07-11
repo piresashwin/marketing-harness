@@ -314,6 +314,39 @@ export class InstagramConnector implements Connector {
   }
 
   /**
+   * Completes a goal-driven draft (status='draft', caption but no media) with
+   * media and a schedule time, turning it into status='scheduled' — the same
+   * row, so the worker picks it up and no orphan draft is left behind. The
+   * caption passed in overrides the draft's seed hook if provided.
+   */
+  async promoteDraft(
+    brandId: number,
+    postId: number,
+    opts: { media: MediaInput; caption?: string; scheduledAt: Date },
+  ): Promise<void> {
+    const account = await this.requireAccount(brandId);
+    const publicUrl = await rehostToStore(opts.media, account.brand_id);
+    const { rowCount } = await pool.query(
+      `UPDATE posts
+          SET social_account_id = $1,
+              caption = $2,
+              media_urls = $3::jsonb,
+              status = 'scheduled',
+              scheduled_at = $4
+        WHERE id = $5 AND brand_id = $6 AND status = 'draft'`,
+      [
+        account.id,
+        opts.caption ?? null,
+        JSON.stringify([publicUrl]),
+        opts.scheduledAt,
+        postId,
+        brandId,
+      ],
+    );
+    if (!rowCount) throw new Error("not_found");
+  }
+
+  /**
    * Publishes an already-claimed posts row by its id. The row must have been
    * claimed (status='publishing') by the scheduler's atomic UPDATE. Uses the
    * stored public URLs — no re-hosting. Updates the row in-place; does NOT

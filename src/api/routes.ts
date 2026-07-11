@@ -27,6 +27,8 @@ import {
   listReviewQueue,
 } from "../posts/review.js";
 import { createReviewToken } from "../posts/clientPortal.js";
+import * as brain from "../brain/service.js";
+import * as goals from "../goals/service.js";
 
 export const apiRouter = Router();
 apiRouter.use(requireAuth());
@@ -1217,6 +1219,336 @@ apiRouter.post(
   },
 );
 
+// ── Goal-driven mode (brand-scoped, BYOK Claude) ──────────────────────
+// The user states an outcome; the AI proposes an approvable Intent Preview;
+// on approval the plan is materialized as status='draft' posts in the
+// queue. Shared with the MCP tools (propose_goal_plan / approve_goal_plan) —
+// same src/goals/service.ts, no forked logic.
+function handleGoalError(e: unknown, res: Response, fallback: string): void {
+  const msg = (e as Error).message;
+  if (msg === "not_found") {
+    res.status(404).json({ error: "not found" });
+    return;
+  }
+  handleAiError(e, res, fallback);
+}
+
+const proposeGoalSchema = z.object({ goal: z.string().min(1).max(2000) });
+
+apiRouter.post(
+  "/brands/:brandId/goals",
+  requireBrand(),
+  async (req: BrandRequest, res) => {
+    const parsed = proposeGoalSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "a goal is required" });
+      return;
+    }
+    try {
+      res.json(await goals.proposeGoal(req.brand!.id, parsed.data.goal));
+    } catch (e) {
+      handleGoalError(e, res, "could not generate a plan for this goal");
+    }
+  },
+);
+
+// GET /brands/:brandId/goals — recent runs (action log) + current drafts.
+apiRouter.get(
+  "/brands/:brandId/goals",
+  requireBrand(),
+  async (req: BrandRequest, res) => {
+    try {
+      const [runs, drafts] = await Promise.all([
+        goals.listGoals(req.brand!.id),
+        goals.listDrafts(req.brand!.id),
+      ]);
+      res.json({ runs, drafts });
+    } catch {
+      res.status(500).json({ error: "could not load goals" });
+    }
+  },
+);
+
+function parseRunId(req: BrandRequest, res: Response): number | null {
+  const runId = Number(req.params.runId);
+  if (!Number.isInteger(runId)) {
+    res.status(400).json({ error: "invalid run id" });
+    return null;
+  }
+  return runId;
+}
+
+apiRouter.post(
+  "/brands/:brandId/goals/:runId/approve",
+  requireBrand(),
+  async (req: BrandRequest, res) => {
+    const runId = parseRunId(req, res);
+    if (runId === null) return;
+    try {
+      res.json(await goals.approveGoal(req.brand!.id, runId));
+    } catch (e) {
+      handleGoalError(e, res, "could not approve this plan");
+    }
+  },
+);
+
+apiRouter.post(
+  "/brands/:brandId/goals/:runId/discard",
+  requireBrand(),
+  async (req: BrandRequest, res) => {
+    const runId = parseRunId(req, res);
+    if (runId === null) return;
+    try {
+      res.json({ run: await goals.discardGoal(req.brand!.id, runId) });
+    } catch (e) {
+      handleGoalError(e, res, "could not discard this plan");
+    }
+  },
+);
+
+// ── Goal-driven mode: draft posts (status='draft', caption but no media) ──
+
+function parseDraftId(req: BrandRequest, res: Response): number | null {
+  const postId = Number(req.params.postId);
+  if (!Number.isInteger(postId)) {
+    res.status(400).json({ error: "invalid post id" });
+    return null;
+  }
+  return postId;
+}
+
+// GET /brands/:brandId/goals/drafts/:postId — Compose prefill.
+apiRouter.get(
+  "/brands/:brandId/goals/drafts/:postId",
+  requireBrand(),
+  async (req: BrandRequest, res) => {
+    const postId = parseDraftId(req, res);
+    if (postId === null) return;
+    try {
+      res.json(await goals.getDraft(req.brand!.id, postId));
+    } catch (e) {
+      handleGoalError(e, res, "could not load draft");
+    }
+  },
+);
+
+apiRouter.delete(
+  "/brands/:brandId/goals/drafts/:postId",
+  requireBrand(),
+  async (req: BrandRequest, res) => {
+    const postId = parseDraftId(req, res);
+    if (postId === null) return;
+    try {
+      await goals.deleteDraft(req.brand!.id, postId);
+      res.json({ ok: true });
+    } catch (e) {
+      handleGoalError(e, res, "could not delete draft");
+    }
+  },
+);
+
+const promoteDraftSchema = z.object({
+  caption: z.string().max(2200).optional(),
+  imageBase64: z.string().min(1),
+  contentType: z.string().default("image/jpeg"),
+  scheduledAt: z.string().datetime({ offset: true }),
+});
+
+// PATCH /brands/:brandId/goals/drafts/:postId/promote — complete a draft with
+// media + a schedule time. Updates the SAME row to status='scheduled', so the
+// worker picks it up and no orphan draft is left behind.
+apiRouter.patch(
+  "/brands/:brandId/goals/drafts/:postId/promote",
+  requireBrand(),
+  async (req: BrandRequest, res) => {
+    const postId = parseDraftId(req, res);
+    if (postId === null) return;
+    const parsed = promoteDraftSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "imageBase64 and a future scheduledAt (ISO 8601) are required" });
+      return;
+    }
+    const scheduledAt = new Date(parsed.data.scheduledAt);
+    if (scheduledAt <= new Date()) {
+      res.status(400).json({ error: "scheduledAt must be in the future" });
+      return;
+    }
+    try {
+      await instagram.promoteDraft(req.brand!.id, postId, {
+        media: { base64: parsed.data.imageBase64, contentType: parsed.data.contentType },
+        caption: parsed.data.caption,
+        scheduledAt,
+      });
+      res.json({ ok: true });
+    } catch (e) {
+      if ((e as Error).message === "not_found") {
+        res.status(404).json({ error: "draft not found" });
+        return;
+      }
+      res.status(500).json({ error: "could not schedule draft" });
+    }
+  },
+);
+
+// ── Brand Brain (brand-scoped) ────────────────────────────────────────
+// Persisted items derived from the brand's Instagram analytics. Applying an
+// item is a reversible status flip — anthropic's loadBrandContext reads
+// status='applied' rows and injects them into every generation.
+function handleBrainError(e: unknown, res: Response, fallback: string): void {
+  const msg = (e as Error).message;
+  if (msg === "no_analytics") {
+    res.status(409).json({
+      error: "no_analytics",
+      message: "Pull Instagram analytics for this brand first",
+    });
+    return;
+  }
+  if (msg === "not_found") {
+    res.status(404).json({ error: "not found" });
+    return;
+  }
+  if (msg === "invalid_example") {
+    res.status(400).json({ error: "invalid request" });
+    return;
+  }
+  handleAiError(e, res, fallback);
+}
+
+apiRouter.get(
+  "/brands/:brandId/brain",
+  requireBrand(),
+  async (req: BrandRequest, res) => {
+    try {
+      res.json(await brain.getBrain(req.brand!.id));
+    } catch (e) {
+      handleBrainError(e, res, "could not load brand brain");
+    }
+  },
+);
+
+apiRouter.post(
+  "/brands/:brandId/brain/relearn",
+  requireBrand(),
+  async (req: BrandRequest, res) => {
+    try {
+      res.json(await brain.relearn(req.brand!.id));
+    } catch (e) {
+      handleBrainError(e, res, "brand brain relearn failed");
+    }
+  },
+);
+
+function parseItemId(req: BrandRequest, res: Response): number | null {
+  const itemId = Number(req.params.itemId);
+  if (!Number.isInteger(itemId)) {
+    res.status(400).json({ error: "invalid item id" });
+    return null;
+  }
+  return itemId;
+}
+
+apiRouter.post(
+  "/brands/:brandId/brain/items/:itemId/apply",
+  requireBrand(),
+  async (req: BrandRequest, res) => {
+    const itemId = parseItemId(req, res);
+    if (itemId === null) return;
+    try {
+      res.json(await brain.applyItem(req.brand!.id, itemId));
+    } catch (e) {
+      handleBrainError(e, res, "could not apply item");
+    }
+  },
+);
+
+apiRouter.post(
+  "/brands/:brandId/brain/items/:itemId/dismiss",
+  requireBrand(),
+  async (req: BrandRequest, res) => {
+    const itemId = parseItemId(req, res);
+    if (itemId === null) return;
+    try {
+      res.json(await brain.dismissItem(req.brand!.id, itemId));
+    } catch (e) {
+      handleBrainError(e, res, "could not dismiss item");
+    }
+  },
+);
+
+apiRouter.post(
+  "/brands/:brandId/brain/items/:itemId/undo",
+  requireBrand(),
+  async (req: BrandRequest, res) => {
+    const itemId = parseItemId(req, res);
+    if (itemId === null) return;
+    try {
+      res.json(await brain.undoItem(req.brand!.id, itemId));
+    } catch (e) {
+      handleBrainError(e, res, "could not undo item");
+    }
+  },
+);
+
+const brainAnnotationSchema = z.object({ annotation: z.string().max(240) });
+
+apiRouter.patch(
+  "/brands/:brandId/brain/items/:itemId",
+  requireBrand(),
+  async (req: BrandRequest, res) => {
+    const itemId = parseItemId(req, res);
+    if (itemId === null) return;
+    const parsed = brainAnnotationSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "invalid request" });
+      return;
+    }
+    try {
+      res.json(
+        await brain.updateExampleAnnotation(req.brand!.id, itemId, parsed.data.annotation),
+      );
+    } catch (e) {
+      handleBrainError(e, res, "could not update annotation");
+    }
+  },
+);
+
+const brainExampleSchema = z.object({
+  caption: z.string().min(1).max(600),
+  metric: z.string().max(100).optional().default(""),
+  annotation: z.string().max(240).optional().default(""),
+});
+
+apiRouter.post(
+  "/brands/:brandId/brain/examples",
+  requireBrand(),
+  async (req: BrandRequest, res) => {
+    const parsed = brainExampleSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "invalid request" });
+      return;
+    }
+    try {
+      res.json(await brain.addExampleFromCandidate(req.brand!.id, parsed.data));
+    } catch (e) {
+      handleBrainError(e, res, "could not add example");
+    }
+  },
+);
+
+apiRouter.delete(
+  "/brands/:brandId/brain/items/:itemId",
+  requireBrand(),
+  async (req: BrandRequest, res) => {
+    const itemId = parseItemId(req, res);
+    if (itemId === null) return;
+    try {
+      res.json(await brain.deleteItem(req.brand!.id, itemId));
+    } catch (e) {
+      handleBrainError(e, res, "could not delete item");
+    }
+  },
+);
+
 // ── GDPR data export (no secrets/tokens) ──────────────────────────────
 apiRouter.get("/account/export", async (req: AuthedRequest, res) => {
   const userId = req.user!.id;
@@ -1261,8 +1593,17 @@ apiRouter.get("/account/export", async (req: AuthedRequest, res) => {
     );
     const exportBrands = [];
     for (const b of brands.rows) {
-      const [settings, pillars, platformSettings, socials, posts, analytics, comments] =
-        await Promise.all([
+      const [
+        settings,
+        pillars,
+        platformSettings,
+        socials,
+        posts,
+        analytics,
+        comments,
+        goalRuns,
+        brainItems,
+      ] = await Promise.all([
           pool.query(
             "SELECT why, description, audience, voice, branding FROM brand_settings WHERE brand_id = $1",
             [b.id],
@@ -1295,6 +1636,17 @@ apiRouter.get("/account/export", async (req: AuthedRequest, res) => {
             "SELECT id, post_id, visibility, author_label, body, created_at FROM post_comments WHERE brand_id = $1 ORDER BY created_at",
             [b.id],
           ),
+          // The user's stated goals + AI-proposed plans (their content, no secrets).
+          pool.query(
+            "SELECT goal, status, plan, created_at FROM goal_runs WHERE brand_id = $1 ORDER BY id",
+            [b.id],
+          ),
+          // Brand Brain items — patterns/suggestions/voice examples derived from
+          // the brand's own analytics + captions (no tokens or secrets).
+          pool.query(
+            "SELECT kind, status, data, created_at FROM brand_brain_items WHERE brand_id = $1 ORDER BY id",
+            [b.id],
+          ),
         ]);
       exportBrands.push({
         name: b.name,
@@ -1306,6 +1658,8 @@ apiRouter.get("/account/export", async (req: AuthedRequest, res) => {
         posts: posts.rows,
         analyticsSnapshots: analytics.rows,
         postComments: comments.rows,
+        goalRuns: goalRuns.rows,
+        brandBrainItems: brainItems.rows,
       });
     }
     exportWorkspaces.push({
