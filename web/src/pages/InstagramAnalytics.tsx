@@ -581,7 +581,13 @@ function InsightsPanel({ brandId }: { brandId: string }) {
           <p className="mt-1 text-xs text-muted">
             Interpret these metrics in your brand voice — insights, an action
             plan, suggestions, and content ideas. Uses your workspace's Claude
-            key.
+            key.{" "}
+            <Link
+              to="/brain"
+              className="font-medium text-accent underline underline-offset-2"
+            >
+              See patterns in Brand Brain
+            </Link>
           </p>
         </div>
         <Button size="sm" onClick={generate} disabled={busy} className="shrink-0">

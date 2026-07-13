@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   AtSign,
   Bot,
@@ -50,7 +50,12 @@ const SECTIONS: {
 export function Settings() {
   const { refresh } = useAuth();
   const { activeWorkspaceId, activeBrand, activeBrandId } = useBrand();
-  const [active, setActive] = useState<SectionId>("providers");
+  // Deep-links (e.g. Home's setup checklist) can land on a specific section.
+  const { state } = useLocation();
+  const requested = (state as { section?: SectionId } | null)?.section;
+  const [active, setActive] = useState<SectionId>(
+    requested && SECTIONS.some((s) => s.id === requested) ? requested : "providers",
+  );
 
   return (
     <AppShell title="Settings" subtitle="Workspace & connectors" bleed>

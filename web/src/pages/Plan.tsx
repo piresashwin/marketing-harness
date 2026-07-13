@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { CalendarRange, Loader2, RefreshCw, Sparkles } from "lucide-react";
 import { api, type ContentPlan, type ContentPlanItem } from "../api";
 import { useAuth } from "../auth";
@@ -138,12 +138,12 @@ function Kickoff({
       {!aiReady && (
         <div className="flex items-center justify-between gap-3 rounded-xl border border-amber-200 dark:border-amber-400/20 bg-amber-50 dark:bg-amber-400/10 px-4 py-3 text-sm text-amber-800 dark:text-amber-200">
           <span>Connect Claude in Settings to enable AI content planning.</span>
-          <a
-            href="/settings"
+          <Link
+            to="/settings"
             className="shrink-0 font-medium underline underline-offset-2"
           >
             Settings
-          </a>
+          </Link>
         </div>
       )}
 

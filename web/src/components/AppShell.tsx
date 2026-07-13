@@ -1,5 +1,5 @@
-import { type ComponentType, type ReactNode } from "react";
-import { NavLink, useLocation } from "react-router-dom";
+import { useEffect, useState, type ComponentType, type ReactNode } from "react";
+import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   BarChart2,
   Brain,
@@ -13,7 +13,9 @@ import {
   Sparkles,
   Tag,
   Target,
+  UserRound,
 } from "lucide-react";
+import { api } from "../api";
 import { useAuth } from "../auth";
 import { useBrand } from "../brand";
 import { CreateBrandDialog } from "./CreateBrandDialog";
@@ -28,20 +30,81 @@ import {
   DropdownMenuTrigger,
 } from "./ui";
 
-const NAV: { to: string; label: string; icon: ComponentType<{ className?: string }> }[] = [
-  { to: "/home", label: "Home", icon: Home },
-  { to: "/compose", label: "Compose", icon: Sparkles },
-  { to: "/plan", label: "Plan", icon: CalendarRange },
-  { to: "/goal", label: "Goal", icon: Target },
-  { to: "/calendar", label: "Calendar", icon: CalendarClock },
-  { to: "/brain", label: "Brand Brain", icon: Brain },
-  { to: "/analytics", label: "Analytics", icon: BarChart2 },
-  { to: "/brands", label: "Brands", icon: Tag },
-  { to: "/settings", label: "Settings", icon: SettingsIcon },
+interface NavItem {
+  to: string;
+  label: string;
+  icon: ComponentType<{ className?: string }>;
+  /** Marks the item that carries the needs-review count pill. */
+  showsReviewBadge?: boolean;
+}
+
+// Grouped in journey order: strategize → create → publish → learn.
+const NAV_GROUPS: { label: string | null; items: NavItem[] }[] = [
+  { label: null, items: [{ to: "/home", label: "Home", icon: Home }] },
+  {
+    label: "Strategy",
+    items: [
+      { to: "/goal", label: "Goals", icon: Target },
+      { to: "/plan", label: "Content plan", icon: CalendarRange },
+    ],
+  },
+  {
+    label: "Create",
+    items: [{ to: "/compose", label: "Compose", icon: Sparkles }],
+  },
+  {
+    label: "Publish",
+    items: [
+      { to: "/calendar", label: "Queue", icon: CalendarClock, showsReviewBadge: true },
+    ],
+  },
+  {
+    label: "Learn",
+    items: [
+      { to: "/analytics", label: "Analytics", icon: BarChart2 },
+      { to: "/brain", label: "Brand Brain", icon: Brain },
+    ],
+  },
 ];
+
+const NAV_FLAT: NavItem[] = NAV_GROUPS.flatMap((g) => g.items);
+
+/** Needs-review count for the Queue nav badge. AppShell remounts on every
+ *  navigation (no shared layout route), so this refreshes as the user moves. */
+function useReviewCount(): number {
+  const { activeBrandId } = useBrand();
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    if (activeBrandId == null) {
+      setCount(0);
+      return;
+    }
+    let live = true;
+    api
+      .listReviewQueue(activeBrandId)
+      .then((q) => {
+        if (live) setCount(q.length);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [activeBrandId]);
+  return count;
+}
+
+function NavBadge({ count }: { count: number }) {
+  if (count <= 0) return null;
+  return (
+    <span className="ml-auto rounded-full bg-accent-soft px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-accent-soft-fg">
+      {count}
+    </span>
+  );
+}
 
 function BrandSwitcher() {
   const { brands, activeBrand, activeBrandId, switchBrand } = useBrand();
+  const navigate = useNavigate();
 
   return (
     <DropdownMenu>
@@ -78,6 +141,9 @@ function BrandSwitcher() {
           </DropdownMenuItem>
         ))}
         <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => navigate("/brands")}>
+          <Tag className="h-4 w-4" /> Manage brands
+        </DropdownMenuItem>
         <CreateBrandDialog
           trigger={
             <DropdownMenuItem
@@ -139,6 +205,8 @@ export function AppShell({
 }) {
   // Re-key the content on navigation so it replays the page-enter animation.
   const { pathname } = useLocation();
+  const { activeBrandId } = useBrand();
+  const reviewCount = useReviewCount();
   return (
     <div className="flex h-full">
       {/* Sidebar */}
@@ -149,29 +217,59 @@ export function AppShell({
           </div>
           <span className="font-semibold text-ink">Harness</span>
         </div>
-        <nav className="flex-1 space-y-1 px-3" aria-label="Primary">
-          {NAV.map((n) => {
-            const Icon = n.icon;
-            return (
-              <NavLink
-                key={n.to}
-                to={n.to}
-                className={({ isActive }) =>
-                  `flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-brand-100 motion-reduce:transition-none ${
-                    isActive
-                      ? "bg-accent-soft font-medium text-accent-soft-fg"
-                      : "text-muted hover:bg-hover hover:text-ink"
-                  }`
-                }
-              >
-                <Icon className="h-[18px] w-[18px]" />
-                {n.label}
-              </NavLink>
-            );
-          })}
+        <nav className="flex-1 space-y-4 overflow-y-auto px-3" aria-label="Primary">
+          {NAV_GROUPS.map((group) => (
+            <div key={group.label ?? "top"} className="space-y-1">
+              {group.label && (
+                <p className="px-3 pt-1 text-[11px] font-bold uppercase tracking-[0.16em] text-faint">
+                  {group.label}
+                </p>
+              )}
+              {group.items.map((n) => {
+                const Icon = n.icon;
+                return (
+                  <NavLink
+                    key={n.to}
+                    to={n.to}
+                    className={({ isActive }) =>
+                      `flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-brand-100 motion-reduce:transition-none ${
+                        isActive
+                          ? "bg-accent-soft font-medium text-accent-soft-fg"
+                          : "text-muted hover:bg-hover hover:text-ink"
+                      }`
+                    }
+                  >
+                    <Icon className="h-[18px] w-[18px]" />
+                    {n.label}
+                    {n.showsReviewBadge && <NavBadge count={reviewCount} />}
+                  </NavLink>
+                );
+              })}
+            </div>
+          ))}
         </nav>
-        <div className="border-t border-line p-3">
+        <div className="space-y-1 border-t border-line p-3">
           <BrandSwitcher />
+          <Link
+            to={activeBrandId != null ? `/brands/${activeBrandId}/settings` : "/brands"}
+            className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-muted outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand-100 motion-reduce:transition-none"
+          >
+            <UserRound className="h-[18px] w-[18px]" />
+            Brand profile
+          </Link>
+          <NavLink
+            to="/settings"
+            className={({ isActive }) =>
+              `flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-brand-100 motion-reduce:transition-none ${
+                isActive
+                  ? "bg-accent-soft font-medium text-accent-soft-fg"
+                  : "text-muted hover:bg-hover hover:text-ink"
+              }`
+            }
+          >
+            <SettingsIcon className="h-[18px] w-[18px]" />
+            Settings
+          </NavLink>
         </div>
       </aside>
 
@@ -191,6 +289,14 @@ export function AppShell({
           </div>
           <div className="flex items-center gap-2">
             {actions}
+            {/* Desktop reaches Settings via the sidebar footer. */}
+            <Link
+              to="/settings"
+              aria-label="Settings"
+              className="flex h-9 w-9 items-center justify-center rounded-full text-muted outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-brand-100 md:hidden"
+            >
+              <SettingsIcon className="h-4 w-4" />
+            </Link>
             <ThemeToggle />
             <UserMenu />
           </div>
@@ -201,12 +307,12 @@ export function AppShell({
           className="flex gap-1 overflow-x-auto border-b border-line bg-surface px-4 py-2 md:hidden"
           aria-label="Primary mobile"
         >
-          {NAV.map((n) => (
+          {NAV_FLAT.map((n) => (
             <NavLink
               key={n.to}
               to={n.to}
               className={({ isActive }) =>
-                `shrink-0 rounded-lg px-3 py-1.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-brand-100 ${
+                `flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-brand-100 ${
                   isActive
                     ? "bg-accent-soft font-medium text-accent-soft-fg"
                     : "text-muted"
@@ -214,6 +320,7 @@ export function AppShell({
               }
             >
               {n.label}
+              {n.showsReviewBadge && <NavBadge count={reviewCount} />}
             </NavLink>
           ))}
         </nav>
