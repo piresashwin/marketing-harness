@@ -86,9 +86,9 @@ export function Welcome() {
       <div className="w-full max-w-lg">
         <div className="mb-8 flex items-center gap-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-600 text-sm font-bold text-white">
-            M
+            I
           </div>
-          <span className="font-semibold text-ink">Harness</span>
+          <span className="font-semibold text-ink">Inflxr</span>
         </div>
 
         <p className="mb-3 text-xs font-bold uppercase tracking-[0.14em] text-accent">

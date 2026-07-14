@@ -8,14 +8,19 @@ import {
   Download,
   Eye,
   EyeOff,
+  ImagePlus,
   KeyRound,
+  Mic,
   RefreshCw,
   ShieldAlert,
   ShieldCheck,
+  SlidersHorizontal,
   Trash2,
 } from "lucide-react";
 import {
   api,
+  type GenerationCapability,
+  type GenerationDefaults,
   type IgStatus,
   type WorkspaceProvider,
 } from "../api";
@@ -32,6 +37,7 @@ import {
   Field,
   Input,
   StatusPill,
+  inputCls,
 } from "../components/ui";
 
 type SectionId = "providers" | "instagram" | "data";
@@ -393,6 +399,20 @@ const AI_PROVIDERS: {
     keyFormat: "your API key",
     icon: Clapperboard,
   },
+  {
+    provider: "fal",
+    label: "fal.ai",
+    hint: "Server-side image (FLUX) & video (Kling) generation for posts and the agent.",
+    keyFormat: "key_id:key_secret",
+    icon: ImagePlus,
+  },
+  {
+    provider: "elevenlabs",
+    label: "ElevenLabs",
+    hint: "Voiceover audio (text-to-speech) for Reels and slideshows.",
+    keyFormat: "sk_…",
+    icon: Mic,
+  },
 ];
 
 function AiProviders({
@@ -467,7 +487,191 @@ function AiProviders({
           }}
         />
       ))}
+      <GenerationDefaultsCard workspaceId={workspaceId} statuses={statuses} />
     </div>
+  );
+}
+
+// Per-capability provider + model options, mirrored from the backend's
+// CAPABILITY_PROVIDERS and each connector's model allowlist.
+const GEN_CAPABILITIES: {
+  cap: GenerationCapability;
+  label: string;
+  providers: { provider: WorkspaceProvider; label: string }[];
+  models: Partial<Record<WorkspaceProvider, { id: string; label: string }[]>>;
+}[] = [
+  {
+    cap: "image",
+    label: "Image generation",
+    providers: [{ provider: "fal", label: "fal.ai (FLUX)" }],
+    models: {
+      fal: [
+        { id: "fal-ai/flux/dev", label: "FLUX dev — balanced (default)" },
+        { id: "fal-ai/flux/schnell", label: "FLUX schnell — fast & cheap" },
+        { id: "fal-ai/flux-pro/v1.1", label: "FLUX1.1 pro — premium" },
+      ],
+    },
+  },
+  {
+    cap: "video",
+    label: "Video generation",
+    providers: [{ provider: "fal", label: "fal.ai (Kling)" }],
+    models: {
+      fal: [
+        {
+          id: "fal-ai/kling-video/v2.5-turbo/pro/text-to-video",
+          label: "Kling 2.5 turbo — price/perf (default)",
+        },
+        {
+          id: "fal-ai/kling-video/v3/standard/text-to-video",
+          label: "Kling 3 standard — higher quality",
+        },
+      ],
+    },
+  },
+  {
+    cap: "voice",
+    label: "Voice (TTS)",
+    providers: [{ provider: "elevenlabs", label: "ElevenLabs" }],
+    models: {
+      elevenlabs: [
+        { id: "eleven_multilingual_v2", label: "Multilingual v2 (default)" },
+        { id: "eleven_flash_v2_5", label: "Flash v2.5 — fast & cheap" },
+        { id: "eleven_v3", label: "Eleven v3 — most expressive" },
+      ],
+    },
+  },
+];
+
+function GenerationDefaultsCard({
+  workspaceId,
+  statuses,
+}: {
+  workspaceId: string;
+  statuses: Record<string, string>;
+}) {
+  const [defaults, setDefaults] = useState<GenerationDefaults>({});
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .getGenerationDefaults(workspaceId)
+      .then(({ defaults }) => {
+        if (!cancelled) setDefaults(defaults);
+      })
+      .catch(() => {
+        if (!cancelled) setError("Couldn't load generation defaults.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceId]);
+
+  const save = async (
+    cap: GenerationCapability,
+    value: { provider: WorkspaceProvider; model?: string } | null,
+  ) => {
+    setBusy(true);
+    setError("");
+    try {
+      const res = await api.setGenerationDefault(workspaceId, cap, value);
+      setDefaults(res.defaults);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card>
+      <div className="flex items-start gap-3 p-5">
+        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-accent-soft text-accent-soft-fg ring-1 ring-accent-line">
+          <SlidersHorizontal className="h-5 w-5" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h3 className="font-medium text-ink">Generation defaults</h3>
+          <p className="mt-0.5 text-xs text-faint">
+            Which provider handles each kind of generation when a request
+            doesn't name one.
+          </p>
+        </div>
+      </div>
+      <div className="space-y-3 border-t border-line bg-canvas px-5 py-4">
+        {GEN_CAPABILITIES.map(({ cap, label, providers, models }) => {
+          const connected = providers.filter(
+            (p) => statuses[p.provider] === "connected",
+          );
+          const current = defaults[cap];
+          // A default pointing at a since-disconnected provider counts as unset.
+          const currentProvider =
+            current && statuses[current.provider] === "connected"
+              ? current.provider
+              : "";
+          const modelOptions = currentProvider
+            ? models[currentProvider] ?? []
+            : [];
+          return (
+            <div key={cap} className="flex flex-wrap items-center gap-3">
+              <span className="w-36 text-sm text-muted">{label}</span>
+              {connected.length === 0 ? (
+                <span className="text-sm text-faint">
+                  Connect {providers.map((p) => p.label).join(" or ")} above to
+                  enable.
+                </span>
+              ) : (
+                <>
+                  <select
+                    className={`${inputCls} w-auto`}
+                    value={currentProvider}
+                    disabled={busy}
+                    aria-label={`Default ${label.toLowerCase()} provider`}
+                    onChange={(e) => {
+                      const provider = e.target.value as WorkspaceProvider | "";
+                      void save(cap, provider ? { provider } : null);
+                    }}
+                  >
+                    <option value="">Auto (only connected provider)</option>
+                    {connected.map((p) => (
+                      <option key={p.provider} value={p.provider}>
+                        {p.label}
+                      </option>
+                    ))}
+                  </select>
+                  {currentProvider && modelOptions.length > 0 && (
+                    <select
+                      className={`${inputCls} w-auto`}
+                      value={current?.model ?? modelOptions[0].id}
+                      disabled={busy}
+                      aria-label={`Default ${label.toLowerCase()} model`}
+                      onChange={(e) =>
+                        void save(cap, {
+                          provider: currentProvider,
+                          model: e.target.value,
+                        })
+                      }
+                    >
+                      {modelOptions.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.label}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </>
+              )}
+            </div>
+          );
+        })}
+        {error && (
+          <p className="mt-2 text-sm text-red-600 dark:text-red-400" role="alert">
+            {error}
+          </p>
+        )}
+      </div>
+    </Card>
   );
 }
 

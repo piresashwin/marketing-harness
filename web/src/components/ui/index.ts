@@ -12,6 +12,13 @@ export {
 } from "./Dialog";
 export { FullScreenDialog } from "./FullScreenDialog";
 export {
+  Popover,
+  PopoverTrigger,
+  PopoverAnchor,
+  PopoverClose,
+  PopoverContent,
+} from "./Popover";
+export {
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,

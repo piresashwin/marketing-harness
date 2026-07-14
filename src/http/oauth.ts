@@ -32,7 +32,7 @@ oauthRouter.get("/connectors/instagram/callback", async (req, res) => {
       `<html><body style="font-family:system-ui;padding:2rem">
          <h2>✅ Instagram connected</h2>
          <p>Account <b>@${result.username}</b> (id ${result.igUserId}) is now linked.
-         You can close this tab and return to the harness.</p>
+         You can close this tab and return to Inflxr.</p>
        </body></html>`,
     );
   } catch (e) {

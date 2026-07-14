@@ -181,7 +181,7 @@ function HeaderRow({
     <Card className="flex flex-col gap-4 p-6 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">
         <p className="text-sm text-muted">
-          What Harness has learned about {brandName} from your results — it
+          What Inflxr has learned about {brandName} from your results — it
           sharpens every caption and plan.
         </p>
         <p className="mt-1.5 text-xs text-faint" aria-live="polite">

@@ -32,7 +32,7 @@ export const env = {
 
   email: {
     resendApiKey: process.env.RESEND_API_KEY || "",
-    from: optional("RESEND_FROM", "Marketing Harness <onboarding@resend.dev>"),
+    from: optional("RESEND_FROM", "Inflxr <onboarding@resend.dev>"),
   },
 
   instagram: {

@@ -48,10 +48,14 @@ export async function resolveToPublicUrl(
   return url;
 }
 
-// Max response body for a remote media fetch (15 MB).
-const REMOTE_FETCH_MAX_BYTES = 15 * 1024 * 1024;
-// Request timeout for remote media fetch (10 s).
-const REMOTE_FETCH_TIMEOUT_MS = 10_000;
+// Per-kind limits for a remote media fetch. Videos (generated Reels clips)
+// are far bigger and slower to serve than images.
+const REMOTE_FETCH_LIMITS = {
+  image: { maxBytes: 15 * 1024 * 1024, timeoutMs: 10_000 },
+  video: { maxBytes: 200 * 1024 * 1024, timeoutMs: 60_000 },
+} as const;
+
+export type RemoteMediaKind = keyof typeof REMOTE_FETCH_LIMITS;
 
 /** True if an IPv4 literal falls in a loopback/private/reserved range. */
 function isBlockedIpv4(ip: string): boolean {
@@ -149,8 +153,9 @@ const REMOTE_FETCH_MAX_REDIRECTS = 3;
  * copy. Use this for SCHEDULED posts so the URL remains valid at publish time.
  *
  * - `path`/`base64`: same as resolveToPublicUrl — upload bytes directly.
- * - `url`: fetches the bytes server-side (SSRF-guarded, image/* only, 15 MB cap,
- *   10 s timeout) and stores them under `brands/<brandId>/<date>/<uuid>.<ext>`.
+ * - `url`: fetches the bytes server-side (SSRF-guarded, content type restricted
+ *   to `kind` with per-kind size/timeout caps) and stores them under
+ *   `brands/<brandId>/<date>/<uuid>.<ext>`.
  *
  * Never logs the source URL or response bytes. Throws a safe enumerated error on
  * any SSRF violation, bad content type, size over-run, or fetch failure.
@@ -158,17 +163,20 @@ const REMOTE_FETCH_MAX_REDIRECTS = 3;
 export async function rehostToStore(
   input: MediaInput,
   brandId: number,
+  kind: RemoteMediaKind = "image",
 ): Promise<string> {
   // Non-URL inputs: delegate to the existing upload path.
   if (!input.url) {
     return resolveToPublicUrl(input, brandId);
   }
 
+  const limits = REMOTE_FETCH_LIMITS[kind];
+
   // --- Server-side fetch of a remote URL ---
   // Follow redirects manually so the SSRF guard re-runs on every hop — an
   // allowed host must not be able to 3xx-redirect us to an internal address.
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REMOTE_FETCH_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), limits.timeoutMs);
 
   let resp: Response;
   try {
@@ -198,21 +206,21 @@ export async function rehostToStore(
     throw new Error("could not fetch media");
   }
 
-  // Enforce image/* content type.
+  // Enforce the expected content-type family for this kind.
   const rawCt = resp.headers.get("content-type") ?? "";
   const contentType = rawCt.split(";")[0].trim().toLowerCase();
-  if (!contentType.startsWith("image/")) {
+  if (!contentType.startsWith(`${kind}/`)) {
     throw new Error("unsupported media");
   }
 
   // Cap body size — read via arrayBuffer to avoid streaming partial reads.
   const contentLength = Number(resp.headers.get("content-length") ?? "0");
-  if (contentLength > REMOTE_FETCH_MAX_BYTES) {
+  if (contentLength > limits.maxBytes) {
     throw new Error("could not fetch media");
   }
 
   const buf = await resp.arrayBuffer();
-  if (buf.byteLength > REMOTE_FETCH_MAX_BYTES) {
+  if (buf.byteLength > limits.maxBytes) {
     throw new Error("could not fetch media");
   }
 

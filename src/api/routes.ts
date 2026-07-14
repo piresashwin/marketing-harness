@@ -9,9 +9,17 @@ import {
   listConnectors,
   setConnector,
   deleteConnector,
+  getGenerationDefaults,
+  setGenerationDefault,
   type WorkspaceProvider,
 } from "../connectors/workspace.js";
 import * as anthropic from "../connectors/anthropic/index.js";
+import * as generation from "../connectors/generation.js";
+import {
+  isAllowedImageModel,
+  isAllowedVideoModel,
+} from "../connectors/fal/index.js";
+import * as elevenlabs from "../connectors/elevenlabs/index.js";
 import {
   fetchSiteSignal,
   siteSignalToText,
@@ -552,11 +560,28 @@ apiRouter.get(
   },
 );
 
-const publishSchema = z.object({
-  caption: z.string().max(2200).optional(),
-  imageBase64: z.string().min(1),
-  contentType: z.string().default("image/jpeg"),
-});
+// Exactly one media source: an uploaded image (base64) or an already-public
+// URL (e.g. a generated image the harness re-hosted to its MediaStore).
+const publishSchema = z
+  .object({
+    caption: z.string().max(2200).optional(),
+    imageBase64: z.string().min(1).optional(),
+    imageUrl: z.string().url().optional(),
+    contentType: z.string().default("image/jpeg"),
+  })
+  .refine((d) => !!d.imageBase64 !== !!d.imageUrl, {
+    message: "exactly one of imageBase64/imageUrl",
+  });
+
+function toMediaInput(d: {
+  imageBase64?: string;
+  imageUrl?: string;
+  contentType: string;
+}): { base64?: string; url?: string; contentType?: string } {
+  return d.imageUrl
+    ? { url: d.imageUrl }
+    : { base64: d.imageBase64, contentType: d.contentType };
+}
 
 apiRouter.post(
   "/brands/:brandId/connectors/instagram/publish",
@@ -564,13 +589,13 @@ apiRouter.post(
   async (req: BrandRequest, res) => {
     const parsed = publishSchema.safeParse(req.body);
     if (!parsed.success) {
-      res.status(400).json({ error: "imageBase64 required" });
+      res.status(400).json({ error: "imageBase64 or imageUrl required" });
       return;
     }
     try {
       const result = await instagram.publishImage(
         req.brand!.id,
-        { base64: parsed.data.imageBase64, contentType: parsed.data.contentType },
+        toMediaInput(parsed.data),
         parsed.data.caption,
       );
       res.json(result);
@@ -581,12 +606,17 @@ apiRouter.post(
 );
 
 // ── Instagram scheduled publishing (brand-scoped) ────────────────────
-const scheduleSchema = z.object({
-  caption: z.string().max(2200).optional(),
-  imageBase64: z.string().min(1),
-  contentType: z.string().default("image/jpeg"),
-  scheduledAt: z.string().datetime({ offset: true }),
-});
+const scheduleSchema = z
+  .object({
+    caption: z.string().max(2200).optional(),
+    imageBase64: z.string().min(1).optional(),
+    imageUrl: z.string().url().optional(),
+    contentType: z.string().default("image/jpeg"),
+    scheduledAt: z.string().datetime({ offset: true }),
+  })
+  .refine((d) => !!d.imageBase64 !== !!d.imageUrl, {
+    message: "exactly one of imageBase64/imageUrl",
+  });
 
 apiRouter.post(
   "/brands/:brandId/connectors/instagram/schedule",
@@ -594,7 +624,7 @@ apiRouter.post(
   async (req: BrandRequest, res) => {
     const parsed = scheduleSchema.safeParse(req.body);
     if (!parsed.success) {
-      res.status(400).json({ error: "imageBase64 and a future scheduledAt (ISO 8601) are required" });
+      res.status(400).json({ error: "an image (imageBase64 or imageUrl) and a future scheduledAt (ISO 8601) are required" });
       return;
     }
     const scheduledAt = new Date(parsed.data.scheduledAt);
@@ -604,7 +634,7 @@ apiRouter.post(
     }
     try {
       const postId = await instagram.schedulePost(req.brand!.id, {
-        media: { base64: parsed.data.imageBase64, contentType: parsed.data.contentType },
+        media: toMediaInput(parsed.data),
         caption: parsed.data.caption,
         scheduledAt,
       });
@@ -961,7 +991,12 @@ const setConnectorSchema = z.object({
   config: z.record(z.unknown()).optional(),
 });
 
-const PROVIDERS: WorkspaceProvider[] = ["anthropic", "higgsfield"];
+const PROVIDERS: WorkspaceProvider[] = [
+  "anthropic",
+  "higgsfield",
+  "fal",
+  "elevenlabs",
+];
 
 apiRouter.put(
   "/workspaces/:workspaceId/connectors/:provider",
@@ -978,10 +1013,15 @@ apiRouter.put(
       return;
     }
     try {
-      // anthropic: validate the BYO key live (token-free) before storing.
-      // higgsfield: store-only (generation runs through the Higgsfield MCP).
+      // anthropic/elevenlabs: validate the BYO key live (token-free) before
+      // storing. higgsfield: store-only (generation runs through the
+      // Higgsfield MCP). fal: store-only (no token-free validation ping; a bad
+      // key surfaces as an enumerated auth error on the first generation).
       if (provider === "anthropic") {
         await anthropic.validateKey(parsed.data.apiKey);
+      }
+      if (provider === "elevenlabs") {
+        await elevenlabs.validateKey(parsed.data.apiKey);
       }
       await setConnector(req.workspaceId!, provider, {
         apiKey: parsed.data.apiKey,
@@ -1012,6 +1052,198 @@ apiRouter.delete(
     }
     await deleteConnector(req.workspaceId!, provider);
     res.json({ ok: true });
+  },
+);
+
+// ── Generation defaults (which provider handles image/video/voice) ────
+apiRouter.get(
+  "/workspaces/:workspaceId/generation-defaults",
+  requireWorkspace(),
+  async (req: WorkspaceRequest, res) => {
+    res.json({ defaults: await getGenerationDefaults(req.workspaceId!) });
+  },
+);
+
+const generationDefaultSchema = z.object({
+  // null clears the default back to auto-resolution.
+  value: z
+    .object({
+      provider: z.enum(["fal", "elevenlabs"]),
+      model: z.string().max(120).optional(),
+    })
+    .nullable(),
+});
+
+const GEN_CAPABILITIES = ["image", "video", "voice"] as const;
+type GenCapability = (typeof GEN_CAPABILITIES)[number];
+
+// Per-capability model allowlists, mirroring each connector's.
+const MODEL_CHECKS: Record<GenCapability, (model: string) => boolean> = {
+  image: isAllowedImageModel,
+  video: isAllowedVideoModel,
+  voice: elevenlabs.isAllowedVoiceModel,
+};
+
+apiRouter.put(
+  "/workspaces/:workspaceId/generation-defaults/:capability",
+  requireWorkspace(),
+  async (req: WorkspaceRequest, res) => {
+    const capability = req.params.capability as GenCapability;
+    if (!GEN_CAPABILITIES.includes(capability)) {
+      res.status(400).json({ error: "unknown capability" });
+      return;
+    }
+    const parsed = generationDefaultSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "invalid request" });
+      return;
+    }
+    const value = parsed.data.value;
+    if (value) {
+      if (!generation.CAPABILITY_PROVIDERS[capability].includes(value.provider)) {
+        res.status(400).json({ error: "unknown provider" });
+        return;
+      }
+      if (value.model !== undefined && !MODEL_CHECKS[capability](value.model)) {
+        res.status(400).json({ error: "unsupported model" });
+        return;
+      }
+      const connectors = await listConnectors(req.workspaceId!);
+      const connected = connectors.some(
+        (c) => c.provider === value.provider && c.status === "connected",
+      );
+      if (!connected) {
+        res.status(400).json({ error: "provider not connected" });
+        return;
+      }
+    }
+    await setGenerationDefault(req.workspaceId!, capability, value);
+    res.json({ defaults: await getGenerationDefaults(req.workspaceId!) });
+  },
+);
+
+// ── AI media generation (brand-scoped, BYOK provider via resolver) ────
+// Maps the generation service's enumerated errors → safe client responses.
+// Never echoes the prompt, key, or raw provider error.
+function handleGenerationError(e: unknown, res: Response, kind: string): void {
+  const msg = (e as Error).message;
+  if (msg === "no_provider_configured") {
+    res
+      .status(400)
+      .json({ error: `Connect a ${kind} provider in workspace settings` });
+    return;
+  }
+  if (msg === "provider_not_configured") {
+    res.status(400).json({ error: "That provider is not connected" });
+    return;
+  }
+  if (
+    msg === "unsupported model" ||
+    msg === "unsupported voice" ||
+    msg === `${kind} provider key is invalid`
+  ) {
+    res.status(400).json({ error: msg });
+    return;
+  }
+  if (msg === `${kind} generation was declined`) {
+    res.status(422).json({ error: msg });
+    return;
+  }
+  res.status(500).json({ error: `${kind} generation failed` });
+}
+
+const imageGenSchema = z.object({
+  prompt: z.string().min(1).max(2000),
+  provider: z.enum(["fal"]).optional(),
+  model: z.string().max(120).optional(),
+  size: z.enum(["square", "portrait", "landscape"]).optional(),
+});
+
+apiRouter.post(
+  "/brands/:brandId/ai/image",
+  requireBrand(),
+  async (req: BrandRequest, res) => {
+    const parsed = imageGenSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "invalid request" });
+      return;
+    }
+    try {
+      res.json(await generation.generateImage(req.brand!.id, parsed.data));
+    } catch (e) {
+      handleGenerationError(e, res, "image");
+    }
+  },
+);
+
+// Video is async: POST returns a pending job; poll GET /ai/jobs/:jobId.
+const videoGenSchema = z.object({
+  prompt: z.string().min(1).max(2000),
+  provider: z.enum(["fal"]).optional(),
+  model: z.string().max(160).optional(),
+  aspect: z.enum(["9:16", "16:9", "1:1"]).optional(),
+  durationSeconds: z.union([z.literal(5), z.literal(10)]).optional(),
+});
+
+apiRouter.post(
+  "/brands/:brandId/ai/video",
+  requireBrand(),
+  async (req: BrandRequest, res) => {
+    const parsed = videoGenSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "invalid request" });
+      return;
+    }
+    try {
+      res.json({ job: await generation.generateVideo(req.brand!.id, parsed.data) });
+    } catch (e) {
+      handleGenerationError(e, res, "video");
+    }
+  },
+);
+
+apiRouter.get(
+  "/brands/:brandId/ai/jobs/:jobId",
+  requireBrand(),
+  async (req: BrandRequest, res) => {
+    const jobId = Number(req.params.jobId);
+    if (!Number.isInteger(jobId) || jobId <= 0) {
+      res.status(400).json({ error: "invalid job id" });
+      return;
+    }
+    try {
+      res.json({ job: await generation.readGenerationJob(req.brand!.id, jobId) });
+    } catch (e) {
+      if ((e as Error).message === "job not found") {
+        res.status(404).json({ error: "job not found" });
+        return;
+      }
+      handleGenerationError(e, res, "video");
+    }
+  },
+);
+
+const voiceGenSchema = z.object({
+  text: z.string().min(1).max(elevenlabs.VOICE_TEXT_MAX),
+  provider: z.enum(["elevenlabs"]).optional(),
+  voiceId: z.string().max(60).optional(),
+  model: z.string().max(60).optional(),
+});
+
+apiRouter.post(
+  "/brands/:brandId/ai/voice",
+  requireBrand(),
+  async (req: BrandRequest, res) => {
+    const parsed = voiceGenSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "invalid request" });
+      return;
+    }
+    try {
+      res.json(await generation.generateVoice(req.brand!.id, parsed.data));
+    } catch (e) {
+      handleGenerationError(e, res, "voice");
+    }
   },
 );
 
@@ -1197,6 +1429,48 @@ apiRouter.post(
   },
 );
 
+// ── AI: suggest content pillars (brand-scoped, BYOK Claude) ───────────
+// Standalone pillar suggester — same connector method as the profile draft's
+// pillar byproduct, but callable directly from a website URL, a short note,
+// or neither. Nothing is persisted here; the client merges + autosaves.
+const pillarsSuggestSchema = z.object({
+  url: z.string().min(1).max(2048).optional(),
+  note: z.string().max(2000).optional(),
+});
+
+apiRouter.post(
+  "/brands/:brandId/ai/pillars/suggest",
+  requireBrand(),
+  async (req: BrandRequest, res) => {
+    const parsed = pillarsSuggestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "invalid request" });
+      return;
+    }
+    let note = parsed.data.note;
+    let sourceLabel: string | undefined;
+    if (parsed.data.url) {
+      let signal;
+      try {
+        signal = await fetchSiteSignal(parsed.data.url);
+      } catch (e) {
+        const msg = (e as Error).message as SiteExtractError;
+        res.status(422).json({
+          error: msg in SITE_EXTRACT_MESSAGES ? SITE_EXTRACT_MESSAGES[msg] : "Couldn't read that website.",
+        });
+        return;
+      }
+      note = siteSignalToText(signal);
+      sourceLabel = "the brand's website";
+    }
+    try {
+      res.json(await anthropic.suggestPillars(req.brand!.id, { note, sourceLabel }));
+    } catch (e) {
+      handleAiError(e, res, "pillar suggestion failed");
+    }
+  },
+);
+
 // ── AI content plan (brand-scoped, BYOK Claude) ───────────────────────
 const contentPlanSchema = z.object({
   note: z.string().max(2000).optional(),
@@ -1347,12 +1621,17 @@ apiRouter.delete(
   },
 );
 
-const promoteDraftSchema = z.object({
-  caption: z.string().max(2200).optional(),
-  imageBase64: z.string().min(1),
-  contentType: z.string().default("image/jpeg"),
-  scheduledAt: z.string().datetime({ offset: true }),
-});
+const promoteDraftSchema = z
+  .object({
+    caption: z.string().max(2200).optional(),
+    imageBase64: z.string().min(1).optional(),
+    imageUrl: z.string().url().optional(),
+    contentType: z.string().default("image/jpeg"),
+    scheduledAt: z.string().datetime({ offset: true }),
+  })
+  .refine((d) => !!d.imageBase64 !== !!d.imageUrl, {
+    message: "exactly one of imageBase64/imageUrl",
+  });
 
 // PATCH /brands/:brandId/goals/drafts/:postId/promote — complete a draft with
 // media + a schedule time. Updates the SAME row to status='scheduled', so the
@@ -1365,7 +1644,7 @@ apiRouter.patch(
     if (postId === null) return;
     const parsed = promoteDraftSchema.safeParse(req.body);
     if (!parsed.success) {
-      res.status(400).json({ error: "imageBase64 and a future scheduledAt (ISO 8601) are required" });
+      res.status(400).json({ error: "an image (imageBase64 or imageUrl) and a future scheduledAt (ISO 8601) are required" });
       return;
     }
     const scheduledAt = new Date(parsed.data.scheduledAt);
@@ -1375,7 +1654,7 @@ apiRouter.patch(
     }
     try {
       await instagram.promoteDraft(req.brand!.id, postId, {
-        media: { base64: parsed.data.imageBase64, contentType: parsed.data.contentType },
+        media: toMediaInput(parsed.data),
         caption: parsed.data.caption,
         scheduledAt,
       });
@@ -1686,7 +1965,7 @@ apiRouter.get("/account/export", async (req: AuthedRequest, res) => {
   res.setHeader("Content-Type", "application/json");
   res.setHeader(
     "Content-Disposition",
-    'attachment; filename="marketing-harness-export.json"',
+    'attachment; filename="inflxr-export.json"',
   );
   res.send(JSON.stringify(doc, null, 2));
 });

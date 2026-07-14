@@ -80,7 +80,7 @@ oauthConsentRouter.get("/oauth/consent", async (req, res) => {
       .status(401)
       .send(
         page(
-          `<h2>Sign in required</h2><p>Please sign in to marketing-harness in this browser, then retry connecting from your MCP client.</p>`,
+          `<h2>Sign in required</h2><p>Please sign in to Inflxr in this browser, then retry connecting from your MCP client.</p>`,
         ),
       );
     return;
@@ -107,7 +107,7 @@ oauthConsentRouter.get("/oauth/consent", async (req, res) => {
   res.send(
     page(`
       <h2>Authorize ${esc(clientName)}</h2>
-      <p><b>${esc(clientName)}</b> wants to access your marketing-harness account
+      <p><b>${esc(clientName)}</b> wants to access your Inflxr account
          (signed in as ${esc(user.email)}).</p>
       <p>Scopes: ${scopeList}</p>
       <p>Codes will be sent to: <b>${esc(redirectHost)}</b></p>

@@ -213,9 +213,9 @@ export function AppShell({
       <aside className="hidden w-60 flex-col border-r border-line bg-surface md:flex">
         <div className="flex items-center gap-2 px-5 py-5">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-600 text-sm font-bold text-white">
-            M
+            I
           </div>
-          <span className="font-semibold text-ink">Harness</span>
+          <span className="font-semibold text-ink">Inflxr</span>
         </div>
         <nav className="flex-1 space-y-4 overflow-y-auto px-3" aria-label="Primary">
           {NAV_GROUPS.map((group) => (

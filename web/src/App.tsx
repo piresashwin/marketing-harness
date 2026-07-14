@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./auth";
+import { Landing } from "./pages/Landing";
 import { Login } from "./pages/Login";
 import { Welcome } from "./pages/Welcome";
 import { BrandHome } from "./pages/BrandHome";
@@ -28,10 +29,10 @@ export function App() {
   if (loading) return <Splash />;
 
   // Where to land is resolved from brand state, not a user-level flag:
-  // unauthenticated → login; signed in with no brands → first-run welcome;
-  // otherwise the brand home.
+  // unauthenticated → public landing; signed in with no brands → first-run
+  // welcome; otherwise the brand home.
   const hasBrand = !!me && me.brands.length > 0;
-  const home = !me ? "/login" : hasBrand ? "/home" : "/welcome";
+  const home = !me ? "/" : hasBrand ? "/home" : "/welcome";
 
   const requireApp = (element: React.ReactNode) =>
     !me ? (
@@ -44,9 +45,19 @@ export function App() {
 
   return (
     <Routes>
-      {/* Public route — must render for unauthenticated visitors; placed before
-          the auth-gated catch-all so it is never redirected to /login. */}
+      {/* Public routes — must render for unauthenticated visitors; placed before
+          the auth-gated catch-all so they are never redirected to /login. */}
       <Route path="/review/:token" element={<ClientReview />} />
+      <Route
+        path="/"
+        element={
+          me ? (
+            <Navigate to={hasBrand ? "/home" : "/welcome"} replace />
+          ) : (
+            <Landing />
+          )
+        }
+      />
 
       <Route
         path="/login"

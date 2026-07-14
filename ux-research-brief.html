@@ -1,0 +1,514 @@
+<title>UX Pattern Research — AI-First Marketing Harness</title>
+<meta name="description" content="A cited design-research brief on best-in-class UI/UX patterns for an AI-first social marketing tool, mapped to the harness feature set.">
+
+<style>
+  :root {
+    /* Chosen neutrals — cool, biased a few degrees toward the indigo accent */
+    --paper:   #F6F7FA;
+    --surface: #FFFFFF;
+    --ink:     #15171E;
+    --muted:   #565C6B;
+    --faint:   #878D9C;
+    --line:    #E4E7EF;
+    --line-2:  #D2D7E2;
+
+    /* Brand accent — the harness's own indigo, used precisely */
+    --accent:      #4F46E5;
+    --accent-deep: #3F37C9;
+    --accent-tint: #EEEDFB;
+
+    /* Priority tiers — semantic, encodes real sequencing */
+    --p0:      #BC4B16;  --p0-tint: #FBEDE4;   /* ship first */
+    --p1:      #4F46E5;  --p1-tint: #EEEDFB;   /* next */
+    --p2:      #5E6675;  --p2-tint: #ECEEF3;   /* later */
+
+    /* "You already have this" */
+    --have:      #0C7A5E;  --have-tint: #E2F2ED;
+
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, "Times New Roman", serif;
+    --sans:  -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, "Helvetica Neue", Arial, sans-serif;
+    --mono:  "SF Mono", "JetBrains Mono", ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 17px;
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  .wrap { max-width: 860px; margin: 0 auto; padding: 0 24px; }
+  .prose { max-width: 68ch; }
+
+  /* ── Masthead ─────────────────────────────────────── */
+  header.top {
+    border-bottom: 1px solid var(--line);
+    background: var(--surface);
+  }
+  header.top .wrap { padding-top: 56px; padding-bottom: 40px; }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 18px;
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(2.2rem, 5vw, 3.1rem);
+    line-height: 1.08;
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+    margin: 0 0 18px;
+  }
+  .lede {
+    font-size: 1.2rem;
+    line-height: 1.55;
+    color: var(--muted);
+    max-width: 60ch;
+    margin: 0;
+  }
+  .meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 28px;
+    margin-top: 34px;
+    padding-top: 26px;
+    border-top: 1px solid var(--line);
+    font-size: 0.82rem;
+  }
+  .meta-row dt {
+    font-family: var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 0.68rem;
+    color: var(--faint);
+    margin-bottom: 4px;
+  }
+  .meta-row dd { margin: 0; color: var(--ink); font-weight: 500; }
+
+  /* ── Methodology / caveat ─────────────────────────── */
+  .caveat {
+    margin: 28px 0 0;
+    border: 1px solid var(--line-2);
+    border-left: 3px solid var(--p0);
+    background: var(--surface);
+    border-radius: 8px;
+    padding: 16px 20px;
+    font-size: 0.92rem;
+    color: var(--muted);
+  }
+  .caveat strong { color: var(--ink); }
+
+  /* ── Sections ─────────────────────────────────────── */
+  section { padding: 56px 0; border-bottom: 1px solid var(--line); }
+  section:last-of-type { border-bottom: 0; }
+
+  h2 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 1.9rem;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+    margin: 0 0 6px;
+  }
+  .section-kicker {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--faint);
+    margin: 0 0 14px;
+  }
+  .section-intro { color: var(--muted); margin: 0 0 30px; max-width: 64ch; }
+
+  h3 {
+    font-size: 1.18rem;
+    font-weight: 650;
+    letter-spacing: -0.005em;
+    margin: 0 0 4px;
+  }
+  p { margin: 0 0 16px; }
+  a { color: var(--accent-deep); text-underline-offset: 2px; text-decoration-thickness: 1px; }
+  a:hover { color: var(--accent); }
+
+  /* ── Validation table ─────────────────────────────── */
+  .table-scroll { overflow-x: auto; margin: 0 0 8px; }
+  table.map {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 0.92rem;
+    min-width: 620px;
+  }
+  table.map th, table.map td {
+    text-align: left;
+    padding: 13px 16px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+  table.map thead th {
+    font-family: var(--mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    font-weight: 600;
+    border-bottom: 1.5px solid var(--line-2);
+  }
+  table.map tbody tr:hover { background: var(--paper); }
+  table.map td:nth-child(2) { color: var(--have); font-weight: 550; }
+  .move { color: var(--ink); }
+
+  /* ── Feature blocks ───────────────────────────────── */
+  .feature {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 26px 28px;
+    margin-bottom: 20px;
+  }
+  .feature-head {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+  }
+  .feature-head h3 { margin: 0; }
+
+  .chip {
+    font-family: var(--mono);
+    font-size: 0.66rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 3px 9px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .chip.p0 { background: var(--p0-tint); color: var(--p0); }
+  .chip.p1 { background: var(--p1-tint); color: var(--p1); }
+  .chip.p2 { background: var(--p2-tint); color: var(--p2); }
+
+  .row { margin: 0 0 12px; }
+  .row .label {
+    font-family: var(--mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    display: block;
+    margin-bottom: 3px;
+  }
+  .row p { margin: 0; font-size: 0.96rem; }
+  .pitfall .label { color: var(--p0); }
+
+  .reco {
+    margin-top: 16px;
+    background: var(--accent-tint);
+    border-radius: 8px;
+    padding: 14px 16px;
+  }
+  .reco .label { color: var(--accent-deep); }
+  .reco p { font-size: 0.96rem; color: var(--ink); margin: 0; }
+  .reco strong { color: var(--accent-deep); }
+
+  /* ── Citation chips ───────────────────────────────── */
+  .cite {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    text-decoration: none;
+    color: var(--accent);
+    background: var(--accent-tint);
+    padding: 1px 6px;
+    border-radius: 4px;
+    white-space: nowrap;
+    line-height: 1.4;
+  }
+  .cite:hover { background: var(--accent); color: #fff; }
+  sup { line-height: 0; }
+
+  /* ── Principle list ───────────────────────────────── */
+  ul.principles { list-style: none; padding: 0; margin: 0; }
+  ul.principles li {
+    padding: 16px 0;
+    border-bottom: 1px solid var(--line);
+    display: grid;
+    grid-template-columns: 150px 1fr;
+    gap: 20px;
+  }
+  ul.principles li:last-child { border-bottom: 0; }
+  ul.principles .term {
+    font-weight: 650;
+    font-size: 0.95rem;
+  }
+  ul.principles .def { color: var(--muted); font-size: 0.95rem; }
+
+  /* ── KPI strip ────────────────────────────────────── */
+  .kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 24px 0 0; }
+  .kpi { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px; }
+  .kpi .n {
+    font-family: var(--serif);
+    font-size: 2rem;
+    font-weight: 600;
+    color: var(--accent-deep);
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+  }
+  .kpi .k { font-size: 0.85rem; color: var(--muted); margin-top: 8px; }
+
+  /* ── Bibliography ─────────────────────────────────── */
+  ol.bib { padding-left: 0; list-style: none; counter-reset: b; font-size: 0.88rem; }
+  ol.bib li {
+    counter-increment: b;
+    padding: 10px 0 10px 42px;
+    position: relative;
+    border-bottom: 1px solid var(--line);
+    color: var(--muted);
+  }
+  ol.bib li::before {
+    content: "[" counter(b) "]";
+    position: absolute;
+    left: 0;
+    font-family: var(--mono);
+    font-size: 0.74rem;
+    color: var(--faint);
+  }
+  ol.bib .src { color: var(--ink); font-weight: 550; }
+  ol.bib .q {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 0.62rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: var(--paper);
+    color: var(--faint);
+    border: 1px solid var(--line);
+    margin-left: 6px;
+  }
+
+  footer { padding: 40px 0 64px; color: var(--faint); font-size: 0.82rem; }
+
+  @media (max-width: 620px) {
+    body { font-size: 16px; }
+    ul.principles li { grid-template-columns: 1fr; gap: 4px; }
+    .kpis { grid-template-columns: 1fr; }
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .feature, section > .wrap > * { animation: rise .5s ease both; }
+    @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+  }
+</style>
+
+<header class="top">
+  <div class="wrap">
+    <p class="eyebrow">Design Research · Feature-Lock Input</p>
+    <h1>UX patterns for an AI-first marketing harness</h1>
+    <p class="lede">What the best social tools actually do across ten feature areas — and where the harness already has the right bones versus where it needs to build.</p>
+    <dl class="meta-row">
+      <div><dt>Date</dt><dd>30 June 2026</dd></div>
+      <div><dt>ICP</dt><dd>BYOK solo founders · small agencies</dd></div>
+      <div><dt>Sources</dt><dd>28 fetched · 125 claims</dd></div>
+      <div><dt>Status</dt><dd>Gathered — verify incomplete</dd></div>
+    </dl>
+    <p class="caveat">
+      <strong>Methodology &amp; caveat.</strong> A fan-out research run scoped 5 angles, fetched 28 sources, and extracted ~125 falsifiable claims. The adversarial verification pass was <strong>interrupted before completion</strong>, so these findings are <em>gathered, not yet fact-checked</em>. Sources are mostly practitioner teardowns (medium confidence) plus two primary/academic sources. Treat the patterns as directionally strong; re-run verification before quoting a specific number externally.
+    </p>
+  </div>
+</header>
+
+<!-- ── A. Validation layer ──────────────────────────── -->
+<section>
+  <div class="wrap">
+    <p class="section-kicker">Highest-signal finding</p>
+    <h2>The research validates your architecture</h2>
+    <p class="section-intro">Several best-in-class patterns map onto things the harness already has. That reframes the roadmap as <em>upgrading</em>, not inventing — and it's the cheapest leverage on the board.</p>
+    <div class="table-scroll">
+      <table class="map">
+        <thead>
+          <tr><th>Best-in-class pattern</th><th>You already have</th><th>The move</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>A brand "brain" is a reusable context block fed into every generation <sup><a class="cite" href="https://www.mindstudio.ai/blog/ai-brand-voice-system-voice-profile-body-of-work-design-tokens" target="_blank" rel="noopener">MindStudio</a></sup></td>
+            <td>Cacheable brand-profile prefix in <span style="font-family:var(--mono);font-size:.85em">runTask</span></td>
+            <td class="move">Add a <strong>Body of Work</strong> — 8–12 annotated example posts — and 4 voice dimensions (formality, energy, warmth, complexity)</td>
+          </tr>
+          <tr>
+            <td>Result Options + Result Actions is the dominant gen pattern (accept / regenerate / steer) <sup><a class="cite" href="https://www.aiuxpatterns.com/" target="_blank" rel="noopener">AIUXPatterns</a></sup></td>
+            <td><span style="font-family:var(--mono);font-size:.85em">RefineField</span>: "Use this / Try another" + steer chips</td>
+            <td class="move">Keep as-is — it's textbook. Extend to <strong>multiple variants</strong> side by side.</td>
+          </tr>
+          <tr>
+            <td>Anti-examples sharpen voice; validate with a "swap test" <sup><a class="cite" href="https://www.mindstudio.ai/blog/how-to-build-brand-voice-profile-for-ai" target="_blank" rel="noopener">MindStudio</a></sup></td>
+            <td>"Words you'd never use" list</td>
+            <td class="move">Add the <strong>swap test</strong> to the strength meter — sub in a competitor's name; if it still fits, it's too generic.</td>
+          </tr>
+          <tr>
+            <td>No-login client approval via magic link <sup><a class="cite" href="https://contentstudio.io/social-media-approval-workflow" target="_blank" rel="noopener">ContentStudio</a></sup></td>
+            <td>Magic-link auth (already built for login)</td>
+            <td class="move">Reuse it for the <strong>client approval portal</strong> — near-zero new auth work.</td>
+          </tr>
+          <tr>
+            <td>Workspace-per-client + granular permissions is the agency IA <sup><a class="cite" href="https://planable.io/blog/social-media-management-tools-for-agencies/" target="_blank" rel="noopener">Planable</a></sup></td>
+            <td>Workspace → Brand multi-tenancy</td>
+            <td class="move">You're already there. Layer roles + approval onto the existing model.</td>
+          </tr>
+          <tr>
+            <td>Cost transparency (tokens / runs) is required in agentic UIs <sup><a class="cite" href="https://www.shapeof.ai/patterns/workflow" target="_blank" rel="noopener">ShapeOfAI</a></sup></td>
+            <td>Token-economy / per-task model tiering ethos</td>
+            <td class="move">Surface <strong>projected cost</strong> in goal-driven mode — it fits your BYOK frugality.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ── B. P0 ────────────────────────────────────────── -->
+<section>
+  <div class="wrap">
+    <p class="section-kicker">Findings by feature · close the loop</p>
+    <h2>Ship first</h2>
+    <p class="section-intro">The three features that turn a manual composer into the product everyone described. None exists today.</p>
+
+    <div class="feature">
+      <div class="feature-head"><h3>Scheduler &amp; auto-publish queue</h3><span class="chip p0">P0</span></div>
+      <div class="row"><span class="label">Dominant patterns</span><p>Three paradigms: <strong>queue</strong> (Buffer — preset weekly time-slots, drop a post into the next open one), <strong>calendar</strong> (pick exact date/time), and <strong>visual grid</strong> (Later — plan the Instagram aesthetic). Hypefury adds <strong>category-based queues</strong> with per-category posting frequency and background evergreen recycling. <sup><a class="cite" href="https://buffer.com/resources/social-media-scheduling-tools/" target="_blank" rel="noopener">Buffer</a></sup> <sup><a class="cite" href="https://socialrails.com/blog/hypefury-review" target="_blank" rel="noopener">SocialRails</a></sup></p></div>
+      <div class="row"><span class="label">Best in class</span><p>Separate <em>draft storage</em> from scheduling — Buffer's "Create Space" parks ideas before any time is assigned. Offer multiple lenses on the same data (Planable: grid, feed, calendar, list). Ground time-slot suggestions in the user's own analytics, not generic best-practice times (HubSpot). <sup><a class="cite" href="https://planable.io/blog/schedule-social-media-posts/" target="_blank" rel="noopener">Planable</a></sup></p></div>
+      <div class="row pitfall"><span class="label">Pitfall</span><p>Calendar-only UIs become unusable past ~20 posts/week. Don't force a date at creation time.</p></div>
+      <div class="reco"><span class="label">Recommend</span><p><strong>Queue-first</strong> (cadence + preset slots) with a calendar as a secondary lens, plus a dedicated idea/draft parking space. Add evergreen recycling for solo founders posting thin.</p></div>
+    </div>
+
+    <div class="feature">
+      <div class="feature-head"><h3>Content-plan generator</h3><span class="chip p0">P0</span></div>
+      <div class="row"><span class="label">Dominant pattern</span><p>Category-based content organization with per-category posting frequency (Hypefury) is the productized form of pillars-and-ratios. <sup><a class="cite" href="https://www.wearefounders.uk/hypefury-vs-typefully-2026-which-x-tool-is-worth-paying-for/" target="_blank" rel="noopener">WeAreFounders</a></sup></p></div>
+      <div class="row"><span class="label">Mapping</span><p>Your <strong>content pillars × ratios</strong> already <em>are</em> the plan-generation algorithm: pillars × cadence → dated slots. The generator is a fan-out of structure you've collected, not a new data model.</p></div>
+      <div class="reco"><span class="label">Recommend</span><p>A <strong>flipped-interaction</strong> kickoff — the AI asks 2–3 questions (what's coming up? cadence?) then proposes a dated plan you edit. <sup><a class="cite" href="https://arxiv.org/abs/2411.02662" target="_blank" rel="noopener">arXiv</a></sup></p></div>
+    </div>
+
+    <div class="feature">
+      <div class="feature-head"><h3>Inline media generation</h3><span class="chip p0">P0</span></div>
+      <div class="row"><span class="label">Dominant pattern</span><p><strong>Inline overlay</strong> — accept / edit / undo / regenerate in place — positions AI as a precision assistant, not a separate mode. <sup><a class="cite" href="https://medium.com/whitespectre/emerging-ui-ux-patterns-in-generative-ai-a-visual-guide-74" target="_blank" rel="noopener">Whitespectre</a></sup></p></div>
+      <div class="row"><span class="label">Best in class</span><p>Canva keeps generated output as <em>editable objects</em>, not flattened images, and applies the Brand Kit when one is configured. Output still needs <strong>15–30% manual refinement</strong> — the review step is non-optional even in the best tools. Quality tracks prompt specificity, so give structured prompt scaffolds. <sup><a class="cite" href="https://aitoolanalysis.com/canva-magic-studio-review/" target="_blank" rel="noopener">Canva review</a></sup></p></div>
+      <div class="row pitfall"><span class="label">Pitfall</span><p>Treating generation as one-shot finished output. It's a first draft; design the edit affordances first.</p></div>
+      <div class="reco"><span class="label">Recommend</span><p>Wire Higgsfield as an <strong>inline draft generator</strong> in the composer, brand-guardrails applied pre-generation, with edit/regenerate always one tap away.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ── C. P1 ────────────────────────────────────────── -->
+<section>
+  <div class="wrap">
+    <p class="section-kicker">Findings by feature · make it agentic &amp; trusted</p>
+    <h2>Build next</h2>
+    <p class="section-intro">The layer that makes the loop autonomous, multi-channel, and safe enough to hand the keys to.</p>
+
+    <div class="feature">
+      <div class="feature-head"><h3>Approval &amp; guardrails</h3><span class="chip p1">P1</span><span style="font-size:.82rem;color:var(--faint)">unlocks the agency tier</span></div>
+      <div class="row"><span class="label">Dominant patterns</span><p>Four modes — <strong>None / Optional / Required / Multi-level</strong> — matched per client. A visible status state machine: <em>Draft → In Review → Changes Requested → Approved → Scheduled → Published</em>, with <strong>post-locking</strong> after sign-off. <sup><a class="cite" href="https://planable.io/blog/social-media-approval-process/" target="_blank" rel="noopener">Planable</a></sup> <sup><a class="cite" href="https://teamgrain.com/blog/social-media-approval-workflow-guide/" target="_blank" rel="noopener">Grain</a></sup></p></div>
+      <div class="row"><span class="label">Best in class</span><p>Separate internal vs client-visible comments; live comments co-located with a <strong>pixel-perfect platform preview</strong>; a <strong>force-publish escape hatch</strong> so one silent approver can't freeze the queue. Single revision cycle + sub-24h limits cut draft-to-live 40–70%. <sup><a class="cite" href="https://blackbearmedia.io/vista-social-review/" target="_blank" rel="noopener">Vista Social</a></sup></p></div>
+      <div class="row pitfall"><span class="label">Pitfall</span><p>Feedback scattered across Slack/email; post-approval edits with no audit trail. ~40% of multi-brand time goes to coordination, not creation. <sup><a class="cite" href="https://mydropai.com/post/best-social-media-management-tools-for-multi-brand-operations-2026" target="_blank" rel="noopener">mydrop</a></sup></p></div>
+      <div class="reco"><span class="label">Recommend</span><p>State machine + magic-link client portal + comments on the preview. Start with Optional/Required; add Multi-level for agencies.</p></div>
+    </div>
+
+    <div class="feature">
+      <div class="feature-head"><h3>Multi-channel composer</h3><span class="chip p1">P1</span></div>
+      <div class="row"><span class="label">Dominant pattern</span><p><strong>Single-draft → per-platform customization</strong>: write one core idea, then tune hashtags / dimensions / format per platform, with <strong>live simultaneous previews</strong> during composition (not post-hoc). <sup><a class="cite" href="https://www.socialcal.app/blog/buffer-vs-hootsuite-vs-later-vs-socialcal-comparison-2025" target="_blank" rel="noopener">SocialCal</a></sup> <sup><a class="cite" href="https://posteverywhere.ai/blog/best-cross-posting-tools" target="_blank" rel="noopener">PostEverywhere</a></sup></p></div>
+      <div class="row"><span class="label">The metric</span><p>The whole category optimizes <em>"distance between creative decision and the Schedule button."</em> Benchmark: <strong>under 90 seconds</strong> concept → published.</p></div>
+      <div class="reco"><span class="label">Recommend</span><p>One composer, per-platform override tabs, side-by-side previews. LinkedIn is channel #2 (highest cross-persona demand after IG).</p></div>
+    </div>
+
+    <div class="feature">
+      <div class="feature-head"><h3>Brand brain &amp; memory</h3><span class="chip p1">P1</span><span style="font-size:.82rem;color:var(--faint)">the moat</span></div>
+      <div class="row"><span class="label">Structure</span><p>Three persistent files: <strong>Voice Profile</strong> (behavioral rules, 400–700 words) + <strong>Body of Work</strong> (8–12 annotated examples) + <strong>Design Tokens</strong> (formatting). Source from 5–10 authentic pieces; exclude AI/ghostwritten samples. <sup><a class="cite" href="https://www.mindstudio.ai/blog/ai-brand-voice-system-voice-profile-body-of-work-design-tokens" target="_blank" rel="noopener">MindStudio</a></sup></p></div>
+      <div class="row"><span class="label">Memory UX rules</span><p>Scope memory to the brand (no cross-brand bleed); <strong>surface what's retained</strong> (silent accumulation is an anti-pattern); let users see / edit / remove / reset; never tie deletion to account deletion. <sup><a class="cite" href="https://www.shapeof.ai/patterns/memory" target="_blank" rel="noopener">ShapeOfAI</a></sup></p></div>
+      <div class="row pitfall"><span class="label">Caveat</span><p>Voice portability across models is <em>partial</em> — the same profile reads differently on Claude vs GPT vs Gemini. Relevant to a BYOK multi-model future.</p></div>
+      <div class="reco"><span class="label">Recommend</span><p>Evolve the profile into a living brand brain; have the learning loop prompt a monthly 15-min review and quarterly +2–3 examples.</p></div>
+    </div>
+
+    <div class="feature">
+      <div class="feature-head"><h3>Goal-driven / agentic mode</h3><span class="chip p1">P1</span><span style="font-size:.82rem;color:var(--faint)">the 5-year wedge</span></div>
+      <div class="row"><span class="label">Dominant patterns</span><p><strong>Intent Preview</strong>: show the plan <em>before</em> execution with "Proceed / Edit Plan / Handle it Myself." An <strong>Autonomy Dial</strong> from "Observe &amp; Suggest" to "Act Autonomously." Persistent action log + time-limited undo. <sup><a class="cite" href="https://www.smashingmagazine.com/2026/02/designing-agentic-ai-practical-ux-patterns/" target="_blank" rel="noopener">Smashing</a></sup></p></div>
+      <div class="row"><span class="label">Trust is designed, not emergent</span><p>Distinguish human-authored vs agent-generated steps; attach "why this step" metadata; design for graceful recovery over flawlessness.</p>
+        <div class="kpis">
+          <div class="kpi"><div class="n">&gt;85%</div><div class="k">Intent Preview accepted without edits</div></div>
+          <div class="kpi"><div class="n">&lt;5%</div><div class="k">Action reversion rate</div></div>
+          <div class="kpi"><div class="n">&gt;90%</div><div class="k">Post-escalation task completion</div></div>
+        </div>
+      </div>
+      <div class="reco"><span class="label">Recommend</span><p>Expose goal-driven mode through your MCP server — "warm up this launch" → it drafts a plan you approve. Your MCP layer is the unfair advantage; this is where it pays off.</p></div>
+    </div>
+
+    <div class="feature">
+      <div class="feature-head"><h3>Analytics → learning loop</h3><span class="chip p1">P1</span></div>
+      <div class="row"><span class="label">Patterns</span><p>Minimize cognitive load; progressive disclosure; a single dashboard can't serve all roles — pick the job. Ground recommendations in the user's own performance data. Feedback-ranking (rate AI outputs) closes the loop back into the brand brain. <sup><a class="cite" href="https://www.uxpin.com/studio/blog/dashboard-design-principles/" target="_blank" rel="noopener">UXPin</a></sup> <sup><a class="cite" href="https://blog.ideafloats.com/human-in-the-loop-ai-in-2025/" target="_blank" rel="noopener">IdeaFloats</a></sup></p></div>
+      <div class="reco"><span class="label">Recommend</span><p>Feed <span style="font-family:var(--mono);font-size:.85em">deriveInsights</span> output back into the brand brain and the next plan — that's the compounding flywheel, not just a read-only dashboard.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ── D. Cross-cutting ─────────────────────────────── -->
+<section>
+  <div class="wrap">
+    <p class="section-kicker">Applies everywhere AI touches the UI</p>
+    <h2>Cross-cutting principles</h2>
+    <ul class="principles">
+      <li><span class="term">Review-and-approve, never auto-publish</span><span class="def">The dominant human-in-the-loop pattern: AI output is reviewed before it goes live. Auto-publish AI content is the cardinal anti-pattern. <sup><a class="cite" href="https://blog.ideafloats.com/human-in-the-loop-ai-in-2025/" target="_blank" rel="noopener">IdeaFloats</a></sup></span></li>
+      <li><span class="term">Placement signals role</span><span class="def">Inline overlay reads as micro-assist; a left/right panel reads as co-creator or deep-context expert; a bottom-right widget reads as task-bounded and reactive. Place AI where you want it perceived. <sup><a class="cite" href="https://uxdesign.cc/where-should-ai-sit-in-your-ui-1710a258390e" target="_blank" rel="noopener">UX Collective</a></sup></span></li>
+      <li><span class="term">Iterate, don't one-shot</span><span class="def">Structured prompts win in early phases; iterative back-and-forth wins as detail increases. A meta-design cycle of joint create → evaluate → modify beats generate-and-accept. <sup><a class="cite" href="https://arxiv.org/abs/2411.02662" target="_blank" rel="noopener">arXiv</a></sup></span></li>
+      <li><span class="term">Six AI affordances</span><span class="def">Inline Help, Prompt Feedback, Inline Suggestions, Prompt-Quality Feedback, Result Options, Result Actions — the foundational vocabulary for any AI surface. <sup><a class="cite" href="https://www.aiuxpatterns.com/" target="_blank" rel="noopener">AIUXPatterns</a></sup></span></li>
+      <li><span class="term">Shorten the decision-to-publish path</span><span class="def">Native asset integrations turn a six-step asset flow into two clicks. Every step between a creative decision and publishing is the thing to delete. <sup><a class="cite" href="https://mydropai.com/post/best-social-media-management-tools-for-multi-brand-operations-2026" target="_blank" rel="noopener">mydrop</a></sup></span></li>
+    </ul>
+  </div>
+</section>
+
+<!-- ── E. Bibliography ──────────────────────────────── -->
+<section>
+  <div class="wrap">
+    <p class="section-kicker">28 sources fetched · key references cited above</p>
+    <h2>Sources</h2>
+    <ol class="bib">
+      <li><span class="src">MindStudio</span> — How to Build an AI Brand Voice System (Voice Profile / Body of Work / Design Tokens). <a href="https://www.mindstudio.ai/blog/ai-brand-voice-system-voice-profile-body-of-work-design-tokens" target="_blank" rel="noopener">link</a> <span class="q">blog</span></li>
+      <li><span class="src">MindStudio</span> — Build a Brand Voice Profile for AI in 15 Minutes. <a href="https://www.mindstudio.ai/blog/how-to-build-brand-voice-profile-for-ai" target="_blank" rel="noopener">link</a> <span class="q">blog</span></li>
+      <li><span class="src">ShapeOfAI</span> — AI UX Patterns: Memory. <a href="https://www.shapeof.ai/patterns/memory" target="_blank" rel="noopener">link</a> <span class="q">pattern lib</span></li>
+      <li><span class="src">ShapeOfAI</span> — AI UX Patterns: Workflow. <a href="https://www.shapeof.ai/patterns/workflow" target="_blank" rel="noopener">link</a> <span class="q">pattern lib</span></li>
+      <li><span class="src">Smashing Magazine</span> — Designing for Agentic AI: Practical UX Patterns (Intent Preview, Autonomy Dial, trust KPIs). <a href="https://www.smashingmagazine.com/2026/02/designing-agentic-ai-practical-ux-patterns/" target="_blank" rel="noopener">link</a> <span class="q">blog</span></li>
+      <li><span class="src">AIUXPatterns</span> — Six foundational AI UX solution patterns. <a href="https://www.aiuxpatterns.com/" target="_blank" rel="noopener">link</a> <span class="q">pattern lib</span></li>
+      <li><span class="src">UX Collective</span> — Where should AI sit in your UI? <a href="https://uxdesign.cc/where-should-ai-sit-in-your-ui-1710a258390e" target="_blank" rel="noopener">link</a> <span class="q">blog</span></li>
+      <li><span class="src">arXiv 2411.02662</span> — Interaction Design with Generative AI: An Empirical Study. <a href="https://arxiv.org/abs/2411.02662" target="_blank" rel="noopener">link</a> <span class="q">primary</span></li>
+      <li><span class="src">IdeaFloats</span> — Human-in-the-Loop AI in 2025: Proven Design Patterns. <a href="https://blog.ideafloats.com/human-in-the-loop-ai-in-2025/" target="_blank" rel="noopener">link</a> <span class="q">blog</span></li>
+      <li><span class="src">Buffer</span> — The Best Social Media Scheduling Tools (queue paradigm, Create Space). <a href="https://buffer.com/resources/social-media-scheduling-tools/" target="_blank" rel="noopener">link</a> <span class="q">vendor</span></li>
+      <li><span class="src">Planable</span> — 12 Best Social Media Scheduling Tools (views, time-slot AI). <a href="https://planable.io/blog/schedule-social-media-posts/" target="_blank" rel="noopener">link</a> <span class="q">vendor</span></li>
+      <li><span class="src">Planable</span> — Social Media Content Approval Process. <a href="https://planable.io/blog/social-media-approval-process/" target="_blank" rel="noopener">link</a> <span class="q">vendor</span></li>
+      <li><span class="src">Planable</span> — Best SMM Tools for Agencies (workspace-per-client, white-label). <a href="https://planable.io/blog/social-media-management-tools-for-agencies/" target="_blank" rel="noopener">link</a> <span class="q">vendor</span></li>
+      <li><span class="src">Grain</span> — Social Media Approval Workflow Guide (status machine, post-locking). <a href="https://teamgrain.com/blog/social-media-approval-workflow-guide/" target="_blank" rel="noopener">link</a> <span class="q">blog</span></li>
+      <li><span class="src">ContentStudio</span> — Social Media Approval Workflow (magic-link, force-publish). <a href="https://contentstudio.io/social-media-approval-workflow" target="_blank" rel="noopener">link</a> <span class="q">vendor</span></li>
+      <li><span class="src">Vista Social</span> review (BlackBear Media) — client portal, single-draft multi-channel. <a href="https://blackbearmedia.io/vista-social-review/" target="_blank" rel="noopener">link</a> <span class="q">blog</span></li>
+      <li><span class="src">SocialCal</span> — Buffer vs Hootsuite vs Later vs SocialCal (paradigm comparison). <a href="https://www.socialcal.app/blog/buffer-vs-hootsuite-vs-later-vs-socialcal-comparison-2025" target="_blank" rel="noopener">link</a> <span class="q">vendor</span></li>
+      <li><span class="src">PostEverywhere</span> — Best Cross-Posting Tools (per-platform adaptation, &lt;90s). <a href="https://posteverywhere.ai/blog/best-cross-posting-tools" target="_blank" rel="noopener">link</a> <span class="q">vendor</span></li>
+      <li><span class="src">mydrop</span> — Best Tools for Multi-Brand Operations (coordination overhead). <a href="https://mydropai.com/post/best-social-media-management-tools-for-multi-brand-operations-2026" target="_blank" rel="noopener">link</a> <span class="q">blog</span></li>
+      <li><span class="src">Canva Magic Studio</span> review (AI Tool Analysis) — editable objects, 15–30% refinement. <a href="https://aitoolanalysis.com/canva-magic-studio-review/" target="_blank" rel="noopener">link</a> <span class="q">blog</span></li>
+      <li><span class="src">SocialRails</span> — Hypefury Review (category queues, evergreen). <a href="https://socialrails.com/blog/hypefury-review" target="_blank" rel="noopener">link</a> <span class="q">blog</span></li>
+      <li><span class="src">WeAreFounders</span> — Hypefury vs Typefully 2026. <a href="https://www.wearefounders.uk/hypefury-vs-typefully-2026-which-x-tool-is-worth-paying-for/" target="_blank" rel="noopener">link</a> <span class="q">blog</span></li>
+      <li><span class="src">UXPin</span> — Dashboard Design Principles. <a href="https://www.uxpin.com/studio/blog/dashboard-design-principles/" target="_blank" rel="noopener">link</a> <span class="q">blog</span></li>
+      <li><span class="src">Whitespectre</span> — Emerging UI/UX Patterns in Generative AI. <a href="https://medium.com/whitespectre/emerging-ui-ux-patterns-in-generative-ai-a-visual-guide-74" target="_blank" rel="noopener">link</a> <span class="q">blog</span></li>
+    </ol>
+    <p style="font-size:.82rem;color:var(--faint);margin-top:18px">Plus SocialRails (Buffer vs Typefully), F³ Fundit, SocialPilot, and arXiv 2602.13745 (Human Oversight-by-Design) consulted in the fetch set. Full claim ledger retained in the workflow journal.</p>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">Generated from an interrupted deep-research run · verification pass incomplete · re-run before external citation.</div>
+</footer>

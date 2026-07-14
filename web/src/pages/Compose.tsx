@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
-import { CalendarClock, Loader2, Plus, Sparkles } from "lucide-react";
+import { CalendarClock, ImagePlus, Loader2, Plus, Sparkles } from "lucide-react";
 import { api, type IgStatus } from "../api";
 import { useBrand } from "../brand";
 import { AppShell } from "../components/AppShell";
-import { Button, Card, Textarea } from "../components/ui";
+import { Button, Card, Input, Textarea } from "../components/ui";
 
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -95,6 +95,8 @@ function Composer({
   const [caption, setCaption] = useState("");
   const [preview, setPreview] = useState<string | null>(null);
   const [base64, setBase64] = useState<string | null>(null);
+  // A harness-hosted URL from AI image generation — mutually exclusive with base64.
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [contentType, setContentType] = useState("image/jpeg");
   const [busy, setBusy] = useState(false);
   const [scheduleBusy, setScheduleBusy] = useState(false);
@@ -102,8 +104,17 @@ function Composer({
   const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);
   const [aiNote, setAiNote] = useState("");
   const [aiBusy, setAiBusy] = useState(false);
+  const [imagePrompt, setImagePrompt] = useState("");
+  const [imageBusy, setImageBusy] = useState(false);
+  const [imageNote, setImageNote] = useState("");
   const [draftLoadError, setDraftLoadError] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const hasImage = !!base64 || !!imageUrl;
+  // Exactly one media source for publish/schedule payloads.
+  const media = imageUrl
+    ? { imageUrl }
+    : { imageBase64: base64 ?? undefined, contentType };
 
   // Prefill the caption from the draft this Compose session is finishing
   // (e.g. from a goal plan's Intent Preview). Scheduling below promotes the
@@ -126,9 +137,27 @@ function Composer({
 
   const pick = async (file?: File) => {
     if (!file) return;
+    setImageUrl(null);
     setContentType(file.type || "image/jpeg");
     setPreview(URL.createObjectURL(file));
     setBase64(await fileToBase64(file));
+  };
+
+  const generateImage = async () => {
+    const prompt = imagePrompt.trim();
+    if (!prompt) return;
+    setImageNote("");
+    setImageBusy(true);
+    try {
+      const r = await api.aiImage(brandId, { prompt, size: "square" });
+      setBase64(null);
+      setImageUrl(r.url);
+      setPreview(r.url);
+    } catch (e) {
+      setImageNote((e as Error).message);
+    } finally {
+      setImageBusy(false);
+    }
   };
 
   const aiAssist = async () => {
@@ -149,15 +178,11 @@ function Composer({
   };
 
   const publish = async () => {
-    if (!base64) return;
+    if (!hasImage) return;
     setBusy(true);
     setResult(null);
     try {
-      const r = await api.igPublish(brandId, {
-        caption,
-        imageBase64: base64,
-        contentType,
-      });
+      const r = await api.igPublish(brandId, { caption, ...media });
       // Publishing immediately supersedes the draft it was finishing — delete
       // the source draft row so it doesn't linger in the queue as an orphan.
       if (draftId) {
@@ -175,7 +200,7 @@ function Composer({
   };
 
   const addToQueue = async () => {
-    if (!base64 || !scheduledAt) return;
+    if (!hasImage || !scheduledAt) return;
     setScheduleBusy(true);
     setResult(null);
     try {
@@ -183,15 +208,13 @@ function Composer({
         // Promote the SAME draft row to scheduled — no new row, no orphan.
         await api.promoteDraft(brandId, draftId, {
           caption: caption || undefined,
-          imageBase64: base64,
-          contentType,
+          ...media,
           scheduledAt: new Date(scheduledAt).toISOString(),
         });
       } else {
         await api.igSchedule(brandId, {
           caption: caption || undefined,
-          imageBase64: base64,
-          contentType,
+          ...media,
           scheduledAt: new Date(scheduledAt).toISOString(),
         });
       }
@@ -259,6 +282,36 @@ function Composer({
             )}
           </Button>
           {aiNote && <p className="mt-2 text-xs text-muted">{aiNote}</p>}
+
+          {/* AI image generation — fills the Image slot below with a hosted URL */}
+          <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-accent-line pt-4">
+            <Input
+              value={imagePrompt}
+              onChange={(e) => setImagePrompt(e.target.value)}
+              placeholder="Describe the image, e.g. flat-lay of our product on warm linen…"
+              aria-label="Image prompt"
+              className="min-w-0 flex-1"
+            />
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={generateImage}
+              disabled={imageBusy || !imagePrompt.trim()}
+            >
+              {imageBusy ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden />
+                  Generating…
+                </>
+              ) : (
+                <>
+                  <ImagePlus className="h-4 w-4" aria-hidden />
+                  Generate image
+                </>
+              )}
+            </Button>
+          </div>
+          {imageNote && <p className="mt-2 text-xs text-muted">{imageNote}</p>}
         </div>
 
         <label
@@ -346,7 +399,7 @@ function Composer({
         <div className="mt-4 flex flex-wrap justify-end gap-3">
           <Button
             variant="secondary"
-            disabled={scheduleBusy || !base64 || !ig?.connected || !scheduledAt}
+            disabled={scheduleBusy || !hasImage || !ig?.connected || !scheduledAt}
             onClick={addToQueue}
           >
             {scheduleBusy ? (
@@ -362,7 +415,7 @@ function Composer({
             )}
           </Button>
           <Button
-            disabled={busy || !base64 || !ig?.connected}
+            disabled={busy || !hasImage || !ig?.connected}
             onClick={publish}
           >
             {busy ? (

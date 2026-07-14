@@ -1,5 +1,10 @@
 # CLAUDE.md — marketing-harness
 
+Product name: **Inflxr** (live at inflxr.com) — use it in all user-facing copy,
+emails, and OAuth/consent pages; the repo, package, and infra identifiers (DB
+container, S3 bucket, `harness-theme` storage key, `harness_info` MCP tool) keep
+the marketing-harness name.
+
 A **BYOK** (bring-your-own-keys) marketing automation tool. It is a *harness*: the
 user supplies their own provider keys (LLM, image/video gen, Instagram). It exposes
 an **MCP server** so Claude / other MCP clients can drive marketing workflows, plus
@@ -20,8 +25,22 @@ public URL → create container → publish), schedulable.
   tracks applied ids). Don't reach for Prisma — this project uses raw `pool.query`.
 - **Connectors** (`src/connectors/`): a uniform interface (`types.ts`) —
   `instagram/` (OAuth + publish), `media/` (MediaStore: `s3` for S3/MinIO/R2, or
-  `local`). Workspace-level LLM (Claude) / image-gen (Higgsfield) connectors are
-  planned, not yet built.
+  `local`), `anthropic/` (workspace BYOK LLM, see below), `fal/` (BYOK image gen
+  via sync fal.run + video gen via async queue.fal.run — Kling; model allowlists
+  because model ids are URL paths), `elevenlabs/` (BYOK TTS, live key
+  validation), `higgsfield/` (credential store only). **Generation routing**
+  lives in `src/connectors/generation.ts`: one choke point per capability
+  (`generateImage` / `generateVideo`+`readGenerationJob` / `generateVoice`) that
+  resolves the provider (explicit request → workspace default in
+  `workspace_settings.generation_defaults` → only-connected fallback →
+  enumerated `no_provider_configured`), dispatches to the provider connector,
+  and re-hosts output to the MediaStore for a stable public URL. Video is async:
+  submit inserts a `generation_jobs` row; the status read polls the provider
+  on demand (no background worker). Voice (MP3) is an input asset — not
+  IG-publishable alone. REST (`/api/brands/:id/ai/{image,video,voice}`,
+  `/ai/jobs/:jobId`) and MCP (`generate_image`/`generate_video`/
+  `generation_status`/`generate_voice`) call the same functions — add new
+  providers behind the resolver, never in routes.
 - **Auth** (`src/auth/`): passwordless **magic link** via **Resend**
   (`src/email/resend.ts`), DB-backed cookie sessions.
 

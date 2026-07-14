@@ -1,0 +1,469 @@
+<title>UI Mockups — Marketing Harness</title>
+<meta name="description" content="High-fidelity UI mockups for the locked harness feature set: content-plan generator, queue/calendar, multi-channel composer, approval, and goal-driven mode.">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<style>
+  :root{
+    --canvas:#F7F8FB; --surface:#FFFFFF; --ink:#171922; --muted:#5A6072; --faint:#9097A6;
+    --line:#E6E9F0; --line-2:#D6DAE6;
+    --brand-50:#EEF0FE; --brand-100:#E0E3FC; --brand-500:#6366F1; --brand-600:#4F46E5; --brand-700:#4338CA;
+    --tint:#EEEDFB; --tint-fg:#4338CA;
+    --ok:#0E9F6E; --ok-bg:#E3F5EE; --warn:#B45309; --warn-bg:#FBF0DC; --bad:#DC2626; --bad-bg:#FCE9E9;
+    --slate:#64748B; --slate-bg:#EEF1F5;
+    --p-a:#4F46E5; --p-b:#0E9F6E; --p-c:#D97706; --p-d:#E11D67; --p-e:#7C3AED;
+    --serif:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,"Helvetica Neue",Arial,sans-serif;
+    --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+    --r:12px; --shadow:0 1px 2px rgba(16,20,40,.04),0 8px 24px -12px rgba(16,20,40,.12);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--canvas);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased}
+  .page{max-width:1080px;margin:0 auto;padding:56px 24px 80px}
+  .doc-eyebrow{font-family:var(--mono);font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;color:var(--brand-600);margin:0 0 14px}
+  h1.doc{font-family:var(--serif);font-weight:600;font-size:clamp(2rem,4.5vw,2.8rem);letter-spacing:-.015em;margin:0 0 14px;text-wrap:balance}
+  p.doc-lede{font-size:1.12rem;color:var(--muted);max-width:62ch;margin:0 0 8px}
+  .doc-note{font-size:.86rem;color:var(--faint);margin-top:18px}
+
+  .feat{margin-top:64px}
+  .feat-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:6px}
+  .feat-head h2{font-family:var(--serif);font-size:1.6rem;font-weight:600;letter-spacing:-.01em;margin:0}
+  .tag{font-family:var(--mono);font-size:.62rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;padding:3px 8px;border-radius:999px;background:var(--tint);color:var(--tint-fg)}
+  .tag.p0{background:#FBEDE4;color:#BC4B16}
+  .feat-sub{color:var(--muted);max-width:64ch;margin:0 0 20px;font-size:.96rem}
+  .annot{font-size:.82rem;color:var(--faint);margin-top:14px;padding-left:16px;border-left:2px solid var(--line-2)}
+  .annot b{color:var(--muted);font-weight:600}
+
+  /* ── App frame ─────────────────────────────── */
+  .app{border:1px solid var(--line);border-radius:16px;overflow:hidden;background:var(--surface);box-shadow:var(--shadow);display:grid;grid-template-columns:208px 1fr}
+  .app.solo{grid-template-columns:1fr}
+  .winbar{grid-column:1/-1;display:flex;align-items:center;gap:7px;padding:11px 14px;border-bottom:1px solid var(--line);background:#FBFBFD}
+  .dot{width:11px;height:11px;border-radius:50%}
+  .dot.r{background:#F0685F}.dot.y{background:#F6BE4F}.dot.g{background:#62C554}
+  .winurl{margin-left:12px;font-family:var(--mono);font-size:.72rem;color:var(--faint)}
+
+  /* sidebar */
+  .side{border-right:1px solid var(--line);padding:16px 12px;background:#FCFCFE;min-height:520px}
+  .brandsw{display:flex;align-items:center;gap:9px;padding:8px;border:1px solid var(--line);border-radius:10px;background:var(--surface);cursor:default}
+  .brandsw .logo{width:28px;height:28px;border-radius:8px;background:var(--brand-600);color:#fff;display:grid;place-items:center;font-weight:700;font-size:.85rem}
+  .brandsw .nm{font-weight:600;font-size:.9rem;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .nav{margin-top:14px;display:flex;flex-direction:column;gap:1px}
+  .nav a{display:flex;align-items:center;gap:10px;padding:8px 9px;border-radius:8px;color:var(--muted);font-size:.88rem;text-decoration:none}
+  .nav a .ic{color:var(--faint)}
+  .nav a.on{background:var(--tint);color:var(--tint-fg);font-weight:600}
+  .nav a.on .ic{color:var(--tint-fg)}
+  .ic{width:17px;height:17px;flex:none;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+  .ic.lg{width:20px;height:20px}.ic.sm{width:14px;height:14px}
+
+  /* main */
+  .main{min-width:0;display:flex;flex-direction:column}
+  .topbar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 20px;border-bottom:1px solid var(--line)}
+  .topbar .t{font-weight:650;font-size:1.02rem}
+  .topbar .s{font-size:.78rem;color:var(--faint)}
+  .save{display:inline-flex;align-items:center;gap:6px;font-size:.78rem;color:var(--ok)}
+  .body{padding:20px;overflow-x:auto}
+
+  /* buttons + chips */
+  .btn{display:inline-flex;align-items:center;gap:7px;font:inherit;font-size:.84rem;font-weight:600;border-radius:9px;padding:8px 13px;border:1px solid transparent;cursor:default}
+  .btn.pri{background:var(--brand-600);color:#fff}
+  .btn.sec{background:var(--surface);color:var(--ink);border-color:var(--line-2)}
+  .btn.ghost{background:transparent;color:var(--tint-fg)}
+  .btn.sm{padding:5px 10px;font-size:.78rem;border-radius:8px}
+  .pill{display:inline-flex;align-items:center;gap:5px;font-size:.72rem;font-weight:600;padding:3px 9px;border-radius:999px}
+  .pill.ok{background:var(--ok-bg);color:var(--ok)} .pill.warn{background:var(--warn-bg);color:var(--warn)}
+  .pill.bad{background:var(--bad-bg);color:var(--bad)} .pill.slate{background:var(--slate-bg);color:var(--slate)}
+  .pill.tint{background:var(--tint);color:var(--tint-fg)}
+  .chipbtn{font:inherit;font-size:.76rem;border:1px solid var(--line-2);background:var(--surface);color:var(--muted);border-radius:999px;padding:4px 11px;cursor:default}
+  .chipbtn.on{border-color:var(--brand-500);background:var(--tint);color:var(--tint-fg);font-weight:600}
+
+  .card{border:1px solid var(--line);border-radius:var(--r);background:var(--surface)}
+  .muted{color:var(--muted)} .faint{color:var(--faint)}
+  .mono{font-family:var(--mono)}
+  .eyebrow{font-family:var(--mono);font-size:.66rem;letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
+
+  /* ── Plan generator ──────────────────────────── */
+  .ai-ask{border:1px solid var(--brand-100);background:linear-gradient(180deg,#FCFCFF,#F7F7FE);border-radius:12px;padding:16px 18px}
+  .ai-ask .q{font-weight:600;margin:0 0 4px;display:flex;align-items:center;gap:8px}
+  .ask-chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}
+  .plan-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;min-width:680px}
+  .daycol .dh{font-size:.72rem;color:var(--faint);text-transform:uppercase;letter-spacing:.05em;text-align:center;padding-bottom:6px;font-family:var(--mono)}
+  .slot{border:1px solid var(--line);border-radius:9px;padding:8px;margin-bottom:7px;background:var(--surface);font-size:.76rem}
+  .slot.empty{border-style:dashed;color:var(--faint);text-align:center;display:flex;align-items:center;justify-content:center;gap:5px;min-height:48px}
+  .slot .pl{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px;vertical-align:middle}
+  .slot .ti{font-family:var(--mono);font-size:.66rem;color:var(--faint);display:block;margin-bottom:3px}
+  .slot .tx{color:var(--ink);font-weight:500;line-height:1.35}
+  .legend{display:flex;flex-wrap:wrap;gap:14px;margin-top:14px;font-size:.78rem;color:var(--muted)}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .legend i{width:9px;height:9px;border-radius:2px;display:inline-block}
+
+  /* ── Queue ───────────────────────────────────── */
+  .queue-wrap{display:grid;grid-template-columns:1fr 240px;gap:16px;min-width:720px}
+  .qrow{display:flex;align-items:center;gap:12px;padding:11px 12px;border:1px solid var(--line);border-radius:10px;margin-bottom:8px;background:var(--surface)}
+  .qrow .thumb{width:46px;height:46px;border-radius:8px;flex:none;background:linear-gradient(135deg,#C7D2FE,#A7F3D0)}
+  .qrow .thumb.b{background:linear-gradient(135deg,#FDE68A,#FCA5A5)}
+  .qrow .thumb.c{background:linear-gradient(135deg,#DDD6FE,#C7D2FE)}
+  .qtime{font-family:var(--mono);font-size:.74rem;color:var(--muted);width:74px;flex:none}
+  .qmeta{flex:1;min-width:0}
+  .qmeta .cap{font-size:.84rem;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .qmeta .sub{font-size:.74rem;color:var(--faint);display:flex;gap:8px;align-items:center;margin-top:2px}
+  .park{background:#FBFBFE;border:1px dashed var(--line-2);border-radius:12px;padding:13px}
+  .park h4{margin:0 0 10px;font-size:.82rem}
+  .parkcard{background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:9px 10px;font-size:.8rem;margin-bottom:7px;color:var(--muted)}
+
+  /* ── Composer ───────────────────────────────── */
+  .compose{display:grid;grid-template-columns:1fr 300px;gap:20px;min-width:760px}
+  .tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin-bottom:14px}
+  .tabs button{font:inherit;font-size:.82rem;padding:8px 12px;border:0;background:none;color:var(--muted);border-bottom:2px solid transparent;cursor:default;display:flex;align-items:center;gap:6px}
+  .tabs button.on{color:var(--tint-fg);font-weight:600;border-bottom-color:var(--brand-600)}
+  .editor{border:1px solid var(--line-2);border-radius:11px;padding:13px 14px;position:relative}
+  .editor .txt{font-size:.92rem;line-height:1.6}
+  .ai-fab{position:absolute;right:11px;bottom:11px;width:34px;height:34px;border-radius:9px;border:1px solid var(--brand-100);background:var(--tint);color:var(--tint-fg);display:grid;place-items:center}
+  .ai-prop{margin-top:11px;border:1px solid var(--brand-100);border-radius:11px;overflow:hidden}
+  .ai-prop .hd{background:var(--tint);color:var(--tint-fg);font-family:var(--mono);font-size:.64rem;letter-spacing:.08em;text-transform:uppercase;padding:6px 13px;font-weight:600}
+  .ai-prop .bd{padding:12px 14px;font-size:.9rem}
+  .ai-prop .acts{display:flex;flex-wrap:wrap;gap:7px;padding:0 14px 13px}
+  .gen-media{margin-top:16px;border:1px solid var(--line);border-radius:11px;padding:13px}
+  .gen-media .frame{height:120px;border-radius:9px;background:linear-gradient(135deg,#A5B4FC,#6EE7B7,#FCD34D);position:relative;overflow:hidden}
+  .gen-media .frame .ov{position:absolute;inset:0;display:flex;align-items:flex-end;justify-content:space-between;padding:9px}
+  /* phone preview */
+  .phone{border:8px solid #14161D;border-radius:30px;overflow:hidden;background:#000;width:248px;margin:0 auto;box-shadow:var(--shadow)}
+  .ph-top{background:#fff;display:flex;align-items:center;gap:8px;padding:9px 11px}
+  .ph-av{width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,var(--brand-500),#22D3EE)}
+  .ph-un{font-size:.78rem;font-weight:650}
+  .ph-img{height:230px;background:linear-gradient(135deg,#A5B4FC,#6EE7B7,#FCD34D)}
+  .ph-acts{display:flex;gap:13px;padding:9px 11px;background:#fff;color:#262626}
+  .ph-cap{background:#fff;padding:0 11px 12px;font-size:.76rem;line-height:1.45}
+  .ph-cap b{font-weight:650}
+
+  /* ── Approval ───────────────────────────────── */
+  .pipe{display:flex;align-items:center;gap:0;flex-wrap:wrap;margin-bottom:18px}
+  .pstep{display:flex;align-items:center;gap:7px;font-size:.76rem;padding:5px 10px;border-radius:999px}
+  .pstep.done{background:var(--ok-bg);color:var(--ok)} .pstep.now{background:var(--warn-bg);color:var(--warn);font-weight:600}
+  .pstep.next{background:var(--slate-bg);color:var(--slate)}
+  .parrow{color:var(--line-2);margin:0 4px}
+  .review{display:grid;grid-template-columns:248px 1fr;gap:18px;min-width:680px}
+  .thread{display:flex;flex-direction:column;gap:11px}
+  .cmt{border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:.84rem}
+  .cmt .who{font-weight:650;font-size:.78rem;margin-bottom:2px;display:flex;align-items:center;gap:7px}
+  .cmt.client{border-color:var(--brand-100);background:#FBFBFF}
+  .cmt .role{font-family:var(--mono);font-size:.6rem;letter-spacing:.05em;text-transform:uppercase;padding:1px 6px;border-radius:4px;background:var(--tint);color:var(--tint-fg)}
+  .cmt .role.int{background:var(--slate-bg);color:var(--slate)}
+  .portal-note{display:flex;align-items:center;gap:9px;font-size:.8rem;color:var(--muted);background:#FBFBFE;border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-top:14px}
+
+  /* ── Agentic ────────────────────────────────── */
+  .goalbar{display:flex;gap:10px;align-items:center;border:1px solid var(--line-2);border-radius:12px;padding:6px 6px 6px 15px;background:var(--surface)}
+  .goalbar .gi{flex:1;font-size:.95rem;color:var(--ink)}
+  .intent{border:1px solid var(--brand-100);border-radius:13px;overflow:hidden;margin-top:16px}
+  .intent .ih{background:var(--tint);padding:11px 16px;display:flex;align-items:center;gap:9px}
+  .intent .ih .t{font-weight:650;font-size:.92rem;color:var(--tint-fg)}
+  .istep{display:flex;gap:12px;padding:13px 16px;border-top:1px solid var(--line)}
+  .istep .n{width:22px;height:22px;border-radius:50%;background:var(--tint);color:var(--tint-fg);display:grid;place-items:center;font-size:.72rem;font-weight:700;flex:none;font-family:var(--mono)}
+  .istep .stx{font-size:.88rem}
+  .istep .why{font-size:.76rem;color:var(--faint);margin-top:2px}
+  .intent .foot{display:flex;flex-wrap:wrap;gap:9px;align-items:center;padding:14px 16px;background:#FBFBFE;border-top:1px solid var(--line)}
+  .dial{display:flex;align-items:center;gap:10px;margin-left:auto;font-size:.78rem;color:var(--muted)}
+  .track{width:130px;height:6px;border-radius:999px;background:linear-gradient(90deg,var(--ok),var(--warn),var(--bad));position:relative}
+  .knob{position:absolute;top:50%;left:42%;width:15px;height:15px;border-radius:50%;background:#fff;border:2px solid var(--brand-600);transform:translate(-50%,-50%);box-shadow:0 1px 3px rgba(0,0,0,.2)}
+  .cost{font-family:var(--mono);font-size:.74rem;color:var(--muted);display:inline-flex;align-items:center;gap:6px}
+
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:740px){
+    .app{grid-template-columns:1fr}.side{display:none}
+    .compose,.review,.queue-wrap,.two{grid-template-columns:1fr}
+  }
+  @media (prefers-reduced-motion:no-preference){.feat{animation:rise .5s ease both}@keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}}
+</style>
+
+<!-- reusable icon defs -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <g id="i-home"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></g>
+  <g id="i-pen"><path d="M12 20h9"/><path d="M16.5 3.5a2 2 0 0 1 3 3L7 19l-4 1 1-4Z"/></g>
+  <g id="i-cal"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></g>
+  <g id="i-layers"><path d="M12 3 2 8l10 5 10-5-10-5Z"/><path d="m2 14 10 5 10-5"/></g>
+  <g id="i-chart"><path d="M3 3v18h18"/><path d="m7 14 3-3 3 2 4-5"/></g>
+  <g id="i-cog"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></g>
+  <g id="i-spark"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M18 6l-2.5 2.5M8.5 15.5 6 18"/></g>
+  <g id="i-img"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="1.6"/><path d="m21 16-5-5L5 21"/></g>
+  <g id="i-check"><path d="M20 6 9 17l-5-5"/></g>
+  <g id="i-clock"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></g>
+  <g id="i-plus"><path d="M12 5v14M5 12h14"/></g>
+  <g id="i-heart"><path d="M19 8c0 5-7 9-7 9S5 13 5 8a3.5 3.5 0 0 1 7-1 3.5 3.5 0 0 1 7 1Z"/></g>
+  <g id="i-msg"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2Z"/></g>
+  <g id="i-send"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4Z"/></g>
+  <g id="i-link"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></g>
+  <g id="i-bolt"><path d="M13 2 3 14h7l-1 8 10-12h-7l1-8Z"/></g>
+  <g id="i-repeat"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14M7 22l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></g>
+</defs></svg>
+
+<div class="page">
+  <p class="doc-eyebrow">Design · Mockups v1 · Marketing Harness</p>
+  <h1 class="doc">The product, drawn</h1>
+  <p class="doc-lede">Five screens for the locked feature set, in the app's own visual language. Each is annotated to the UX patterns the research surfaced — read them as spec, not decoration.</p>
+  <p class="doc-note">Static mockups · indigo brand · light theme · matches <span class="mono">web/src</span> token system. Local file — nothing published.</p>
+
+  <!-- 1. PLAN GENERATOR -->
+  <section class="feat">
+    <div class="feat-head"><h2>1 · Content-plan generator</h2><span class="tag p0">P0</span></div>
+    <p class="feat-sub">Flipped-interaction kickoff — the AI asks two or three questions, then proposes a fortnight you edit. Pillars × cadence become dated slots, colour-coded by pillar.</p>
+    <div class="app">
+      <div class="winbar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="winurl">harness.app/plan</span></div>
+      <aside class="side">
+        <div class="brandsw"><span class="logo">Z</span><span class="nm">Zenith Studio</span><svg class="ic sm" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></div>
+        <nav class="nav">
+          <a href="#1"><svg class="ic" viewBox="0 0 24 24"><use href="#i-home"/></svg>Home</a>
+          <a class="on" href="#1"><svg class="ic" viewBox="0 0 24 24"><use href="#i-layers"/></svg>Plan</a>
+          <a href="#1"><svg class="ic" viewBox="0 0 24 24"><use href="#i-cal"/></svg>Calendar</a>
+          <a href="#1"><svg class="ic" viewBox="0 0 24 24"><use href="#i-pen"/></svg>Compose</a>
+          <a href="#1"><svg class="ic" viewBox="0 0 24 24"><use href="#i-chart"/></svg>Analytics</a>
+          <a href="#1"><svg class="ic" viewBox="0 0 24 24"><use href="#i-cog"/></svg>Settings</a>
+        </nav>
+      </aside>
+      <div class="main">
+        <div class="topbar"><div><div class="t">Content plan</div><div class="s">Zenith Studio · next 14 days</div></div><span class="btn pri"><svg class="ic sm" viewBox="0 0 24 24" style="stroke:#fff"><use href="#i-spark"/></svg>Regenerate</span></div>
+        <div class="body">
+          <div class="ai-ask" style="margin-bottom:18px">
+            <p class="q"><svg class="ic" viewBox="0 0 24 24" style="color:var(--brand-600)"><use href="#i-spark"/></svg>Two quick things before I draft the plan</p>
+            <p class="muted" style="margin:0;font-size:.86rem">Anything coming up I should build toward — a launch, an event? And how often do you want to post?</p>
+            <div class="ask-chips">
+              <span class="chipbtn on">Spring launch · Apr 18</span>
+              <span class="chipbtn on">5×/week</span>
+              <span class="chipbtn">Add context…</span>
+            </div>
+          </div>
+          <div class="plan-grid">
+            <div class="daycol"><div class="dh">Mon</div>
+              <div class="slot"><span class="ti">9:00</span><span class="tx"><span class="pl" style="background:var(--p-a)"></span>Why we built Zenith</span></div>
+              <div class="slot empty"><svg class="ic sm" viewBox="0 0 24 24"><use href="#i-plus"/></svg></div>
+            </div>
+            <div class="daycol"><div class="dh">Tue</div>
+              <div class="slot"><span class="ti">12:30 · Reel</span><span class="tx"><span class="pl" style="background:var(--p-b)"></span>Behind the scenes</span></div>
+            </div>
+            <div class="daycol"><div class="dh">Wed</div>
+              <div class="slot"><span class="ti">9:00</span><span class="tx"><span class="pl" style="background:var(--p-c)"></span>Client win → carousel</span></div>
+            </div>
+            <div class="daycol"><div class="dh">Thu</div>
+              <div class="slot"><span class="ti">17:00</span><span class="tx"><span class="pl" style="background:var(--p-a)"></span>Founder POV</span></div>
+            </div>
+            <div class="daycol"><div class="dh">Fri</div>
+              <div class="slot"><span class="ti">11:00 · Reel</span><span class="tx"><span class="pl" style="background:var(--p-d)"></span>Launch teaser</span></div>
+            </div>
+            <div class="daycol"><div class="dh">Sat</div><div class="slot empty">rest</div></div>
+            <div class="daycol"><div class="dh">Sun</div>
+              <div class="slot"><span class="ti">10:00</span><span class="tx"><span class="pl" style="background:var(--p-b)"></span>Weekly tip</span></div>
+            </div>
+          </div>
+          <div class="legend">
+            <span><i style="background:var(--p-a)"></i>Belief / POV · 30%</span>
+            <span><i style="background:var(--p-b)"></i>Behind the scenes · 25%</span>
+            <span><i style="background:var(--p-c)"></i>Proof · 20%</span>
+            <span><i style="background:var(--p-d)"></i>Launch · 15%</span>
+            <span><i style="background:var(--p-e)"></i>Education · 10%</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="annot"><b>Patterns:</b> flipped-interaction kickoff (AI asks, doesn't wait to be prompted) · pillars×ratios as the generation algorithm · every slot is an editable draft, never auto-scheduled · ratio legend keeps the mix honest against the brand profile.</p>
+  </section>
+
+  <!-- 2. QUEUE -->
+  <section class="feat">
+    <div class="feat-head"><h2>2 · Queue &amp; auto-publish</h2><span class="tag p0">P0</span></div>
+    <p class="feat-sub">Queue-first: preset time-slots fill themselves in cadence order, with an idea-parking lane and background evergreen recycling. Calendar is a secondary lens, not the home.</p>
+    <div class="app">
+      <div class="winbar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="winurl">harness.app/queue</span></div>
+      <aside class="side">
+        <div class="brandsw"><span class="logo">Z</span><span class="nm">Zenith Studio</span></div>
+        <nav class="nav">
+          <a href="#2"><svg class="ic" viewBox="0 0 24 24"><use href="#i-home"/></svg>Home</a>
+          <a href="#2"><svg class="ic" viewBox="0 0 24 24"><use href="#i-layers"/></svg>Plan</a>
+          <a class="on" href="#2"><svg class="ic" viewBox="0 0 24 24"><use href="#i-cal"/></svg>Calendar</a>
+          <a href="#2"><svg class="ic" viewBox="0 0 24 24"><use href="#i-pen"/></svg>Compose</a>
+          <a href="#2"><svg class="ic" viewBox="0 0 24 24"><use href="#i-chart"/></svg>Analytics</a>
+          <a href="#2"><svg class="ic" viewBox="0 0 24 24"><use href="#i-cog"/></svg>Settings</a>
+        </nav>
+      </aside>
+      <div class="main">
+        <div class="topbar"><div><div class="t">Queue</div><div class="s">Posts go out in slot order</div></div>
+          <div style="display:flex;gap:6px"><span class="chipbtn on">Queue</span><span class="chipbtn">Calendar</span></div>
+        </div>
+        <div class="body">
+          <div class="queue-wrap">
+            <div>
+              <div class="eyebrow" style="margin-bottom:8px">Wed 9 Apr</div>
+              <div class="qrow"><span class="qtime">9:00 AM</span><span class="thumb"></span><div class="qmeta"><div class="cap">Why we built Zenith — the belief behind it</div><div class="sub"><span class="pill tint">Instagram</span><span class="pill slate">Draft</span></div></div><span class="btn sec sm">Edit</span></div>
+              <div class="qrow"><span class="qtime">5:00 PM</span><span class="thumb c"></span><div class="qmeta"><div class="cap">Founder POV: the one thing we'd never compromise</div><div class="sub"><span class="pill tint">Instagram</span><span class="pill tint">LinkedIn</span><span class="pill ok"><svg class="ic sm" viewBox="0 0 24 24" style="stroke:var(--ok)"><use href="#i-check"/></svg>Approved</span></div></div><span class="btn sec sm">Edit</span></div>
+              <div class="eyebrow" style="margin:14px 0 8px">Thu 10 Apr</div>
+              <div class="qrow"><span class="qtime">12:30 PM</span><span class="thumb b"></span><div class="qmeta"><div class="cap">Behind the scenes — studio reset Reel</div><div class="sub"><span class="pill tint">Instagram</span><span class="pill warn"><svg class="ic sm" viewBox="0 0 24 24" style="stroke:var(--warn)"><use href="#i-repeat"/></svg>Evergreen</span></div></div><span class="btn sec sm">Edit</span></div>
+            </div>
+            <aside class="park">
+              <h4>Idea parking</h4>
+              <div class="parkcard">Carousel: 3 myths about design systems</div>
+              <div class="parkcard">Reel: time-lapse of the rebrand</div>
+              <div class="parkcard">Client quote → quote card</div>
+              <button class="btn ghost sm" style="padding-left:0"><svg class="ic sm" viewBox="0 0 24 24"><use href="#i-plus"/></svg>Park an idea</button>
+              <hr style="border:0;border-top:1px solid var(--line);margin:12px 0">
+              <div class="eyebrow" style="margin-bottom:6px">Posting cadence</div>
+              <p class="muted" style="font-size:.78rem;margin:0">Mon·Wed·Fri 9am, Tue·Thu lunch, Sun 10am. <span style="color:var(--tint-fg);font-weight:600">Edit slots</span></p>
+            </aside>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="annot"><b>Patterns:</b> queue paradigm over calendar (usable past 20 posts/wk) · draft storage separated from scheduling · evergreen recycling · per-slot status &amp; channel pills so state reads at a glance · slot times suggested from the brand's own best-performing hours.</p>
+  </section>
+
+  <!-- 3. COMPOSER -->
+  <section class="feat">
+    <div class="feat-head"><h2>3 · Multi-channel composer</h2><span class="tag p0">P0</span><span class="tag">P1 · channels</span></div>
+    <p class="feat-sub">One draft, per-platform overrides, live preview. Inline AI for both caption and media — accept / try another / steer, never a separate mode. Target: under 90 seconds idea→scheduled.</p>
+    <div class="app">
+      <div class="winbar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="winurl">harness.app/compose</span></div>
+      <aside class="side">
+        <div class="brandsw"><span class="logo">Z</span><span class="nm">Zenith Studio</span></div>
+        <nav class="nav">
+          <a href="#3"><svg class="ic" viewBox="0 0 24 24"><use href="#i-home"/></svg>Home</a>
+          <a href="#3"><svg class="ic" viewBox="0 0 24 24"><use href="#i-layers"/></svg>Plan</a>
+          <a href="#3"><svg class="ic" viewBox="0 0 24 24"><use href="#i-cal"/></svg>Calendar</a>
+          <a class="on" href="#3"><svg class="ic" viewBox="0 0 24 24"><use href="#i-pen"/></svg>Compose</a>
+          <a href="#3"><svg class="ic" viewBox="0 0 24 24"><use href="#i-chart"/></svg>Analytics</a>
+          <a href="#3"><svg class="ic" viewBox="0 0 24 24"><use href="#i-cog"/></svg>Settings</a>
+        </nav>
+      </aside>
+      <div class="main">
+        <div class="topbar"><div><div class="t">Compose</div><div class="s">Posting as Zenith Studio</div></div><span class="save"><svg class="ic sm" viewBox="0 0 24 24" style="stroke:var(--ok)"><use href="#i-check"/></svg>All changes saved</span></div>
+        <div class="body">
+          <div class="compose">
+            <div>
+              <div class="tabs">
+                <button class="on">Instagram</button>
+                <button>LinkedIn <span class="pill slate" style="margin-left:4px">override</span></button>
+                <button><svg class="ic sm" viewBox="0 0 24 24"><use href="#i-plus"/></svg>Channel</button>
+              </div>
+              <div class="editor">
+                <div class="txt">Great design shouldn't be a luxury reserved for agency budgets. Here's how we made a full brand system in an afternoon — and what we'd never cut. 🧵</div>
+                <div class="ai-fab"><svg class="ic sm" viewBox="0 0 24 24"><use href="#i-spark"/></svg></div>
+              </div>
+              <div class="ai-prop">
+                <div class="hd">AI suggestion · in your voice</div>
+                <div class="bd">Most brand systems die in a 40-page PDF nobody opens. Ours fits on one screen. Here's the afternoon we built it — and the one rule we refused to break.</div>
+                <div class="acts">
+                  <span class="btn pri sm">Use this</span>
+                  <span class="btn sec sm">Try another</span>
+                  <span class="btn ghost sm">Keep mine</span>
+                  <span style="width:1px;height:20px;background:var(--line);margin:0 2px"></span>
+                  <span class="chipbtn">Bolder</span><span class="chipbtn">Shorter</span><span class="chipbtn">Warmer</span>
+                </div>
+              </div>
+              <div class="gen-media">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:9px"><span class="eyebrow">Media</span><span class="cost"><svg class="ic sm" viewBox="0 0 24 24"><use href="#i-bolt"/></svg>~$0.04 · your key</span></div>
+                <div class="frame"><div class="ov"><span class="pill" style="background:rgba(255,255,255,.9);color:var(--ink)">Generated · Higgsfield</span><span class="btn sec sm" style="background:rgba(255,255,255,.92)"><svg class="ic sm" viewBox="0 0 24 24"><use href="#i-spark"/></svg>Regenerate</span></div></div>
+                <div style="display:flex;gap:7px;margin-top:9px"><span class="chipbtn">Edit</span><span class="chipbtn">Outpaint</span><span class="chipbtn">Upload instead</span></div>
+              </div>
+            </div>
+            <div>
+              <div class="eyebrow" style="margin-bottom:8px">Live preview · Instagram</div>
+              <div class="phone">
+                <div class="ph-top"><span class="ph-av"></span><span class="ph-un">zenithstudio</span></div>
+                <div class="ph-img"></div>
+                <div class="ph-acts"><svg class="ic" viewBox="0 0 24 24"><use href="#i-heart"/></svg><svg class="ic" viewBox="0 0 24 24"><use href="#i-msg"/></svg><svg class="ic" viewBox="0 0 24 24"><use href="#i-send"/></svg></div>
+                <div class="ph-cap"><b>zenithstudio</b> Great design shouldn't be a luxury reserved for agency budgets…</div>
+              </div>
+              <div style="display:flex;gap:8px;margin-top:14px"><span class="btn pri" style="flex:1;justify-content:center"><svg class="ic sm" viewBox="0 0 24 24" style="stroke:#fff"><use href="#i-clock"/></svg>Add to queue</span><span class="btn sec">Publish now</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="annot"><b>Patterns:</b> single-draft → per-platform override tabs · live platform-accurate preview during composition · inline overlay AI (Result Options + Result Actions + steer chips — your existing RefineField) · media gen as editable first draft with regenerate one tap away · BYOK cost shown inline.</p>
+  </section>
+
+  <!-- 4. APPROVAL -->
+  <section class="feat">
+    <div class="feat-head"><h2>4 · Approval &amp; client portal</h2><span class="tag">P1</span><span class="tag">unlocks agency</span></div>
+    <p class="feat-sub">A visible status machine, comments co-located with a pixel-perfect preview, internal vs client-visible separated, and a magic-link portal so clients sign off without an account.</p>
+    <div class="app solo">
+      <div class="winbar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="winurl">harness.app/posts/4821/review</span></div>
+      <div class="main">
+        <div class="topbar"><div><div class="t">Launch teaser — Reel</div><div class="s">Zenith Studio · created by Maya</div></div><span class="btn sec sm">Force-publish<svg class="ic sm" viewBox="0 0 24 24" style="margin-left:2px"><use href="#i-bolt"/></svg></span></div>
+        <div class="body">
+          <div class="pipe">
+            <span class="pstep done"><svg class="ic sm" viewBox="0 0 24 24" style="stroke:var(--ok)"><use href="#i-check"/></svg>Draft</span><span class="parrow">›</span>
+            <span class="pstep now"><svg class="ic sm" viewBox="0 0 24 24" style="stroke:var(--warn)"><use href="#i-msg"/></svg>In review</span><span class="parrow">›</span>
+            <span class="pstep next">Changes</span><span class="parrow">›</span>
+            <span class="pstep next">Approved</span><span class="parrow">›</span>
+            <span class="pstep next">Scheduled</span><span class="parrow">›</span>
+            <span class="pstep next">Published</span>
+          </div>
+          <div class="review">
+            <div>
+              <div class="phone">
+                <div class="ph-top"><span class="ph-av"></span><span class="ph-un">zenithstudio</span></div>
+                <div class="ph-img" style="background:linear-gradient(135deg,#FDE68A,#FCA5A5)"></div>
+                <div class="ph-acts"><svg class="ic" viewBox="0 0 24 24"><use href="#i-heart"/></svg><svg class="ic" viewBox="0 0 24 24"><use href="#i-msg"/></svg><svg class="ic" viewBox="0 0 24 24"><use href="#i-send"/></svg></div>
+                <div class="ph-cap"><b>zenithstudio</b> Something new is coming April 18 👀</div>
+              </div>
+            </div>
+            <div>
+              <div class="thread">
+                <div class="cmt"><div class="who">Maya <span class="role int">Internal</span></div>Toned the hook down per brand voice — ok to send to client?</div>
+                <div class="cmt client"><div class="who">Sam · Client <span class="role">Client-visible</span></div>Love it. Can we make the date bigger in the thumbnail?</div>
+                <div class="cmt"><div class="who">You <span class="role int">Internal</span></div>On it — regenerating the cover now.</div>
+              </div>
+              <div style="display:flex;gap:8px;margin-top:14px"><span class="btn pri sm"><svg class="ic sm" viewBox="0 0 24 24" style="stroke:#fff"><use href="#i-check"/></svg>Approve &amp; schedule</span><span class="btn sec sm">Request changes</span></div>
+              <div class="portal-note"><svg class="ic" viewBox="0 0 24 24" style="color:var(--brand-600)"><use href="#i-link"/></svg><span>Client reviews via a <b>no-login magic link</b> — reuses the auth you already have. Comments here stay internal unless marked client-visible.</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="annot"><b>Patterns:</b> status state machine with post-locking after sign-off · internal vs client-visible comments on the preview · magic-link client portal (reuse existing auth) · force-publish escape hatch so one silent approver can't freeze the queue.</p>
+  </section>
+
+  <!-- 5. AGENTIC -->
+  <section class="feat">
+    <div class="feat-head"><h2>5 · Goal-driven mode</h2><span class="tag">P1</span><span class="tag">the 5-year wedge</span></div>
+    <p class="feat-sub">State an outcome; the agent proposes a plan <em>before</em> doing anything. Intent Preview with Proceed / Edit / Handle-it-myself, an autonomy dial, why-metadata per step, projected BYOK cost, and an undoable action log. Driven through the MCP server.</p>
+    <div class="app solo">
+      <div class="winbar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="winurl">harness.app/agent</span></div>
+      <div class="main">
+        <div class="topbar"><div><div class="t">Goal</div><div class="s">Zenith Studio</div></div><span class="pill tint"><svg class="ic sm" viewBox="0 0 24 24" style="stroke:var(--tint-fg)"><use href="#i-bolt"/></svg>via MCP</span></div>
+        <div class="body">
+          <div class="goalbar"><span class="gi">Warm up the spring launch over the next two weeks.</span><span class="btn pri"><svg class="ic sm" viewBox="0 0 24 24" style="stroke:#fff"><use href="#i-spark"/></svg>Plan it</span></div>
+          <div class="intent">
+            <div class="ih"><svg class="ic" viewBox="0 0 24 24" style="color:var(--tint-fg)"><use href="#i-spark"/></svg><span class="t">Here's what I'd do — review before I touch anything</span></div>
+            <div class="istep"><span class="n">1</span><div><div class="stx">Draft 6 teaser posts across <b>Belief</b> and <b>Launch</b> pillars.</div><div class="why">Why: your launch pillar is under its 15% target this month.</div></div></div>
+            <div class="istep"><span class="n">2</span><div><div class="stx">Generate cover images for the 2 Reels.</div><div class="why">Why: Reels with covers outperform your feed avg reach by 2.3×.</div></div></div>
+            <div class="istep"><span class="n">3</span><div><div class="stx">Slot them into open queue times Mon–Fri, building to Apr 18.</div><div class="why">Why: peak engagement window is 9am &amp; 5pm on weekdays.</div></div></div>
+            <div class="istep"><span class="n">4</span><div><div class="stx">Hold all 6 for your approval — nothing auto-publishes.</div><div class="why">Why: autonomy dial is set to "Suggest, don't send."</div></div></div>
+            <div class="foot">
+              <span class="btn pri"><svg class="ic sm" viewBox="0 0 24 24" style="stroke:#fff"><use href="#i-check"/></svg>Proceed</span>
+              <span class="btn sec">Edit plan</span>
+              <span class="btn ghost">Handle it myself</span>
+              <span class="cost"><svg class="ic sm" viewBox="0 0 24 24"><use href="#i-bolt"/></svg>est. ~$0.38 · your key</span>
+              <span class="dial">Autonomy<span class="track"><span class="knob"></span></span></span>
+            </div>
+          </div>
+          <div class="two" style="margin-top:16px">
+            <div class="card" style="padding:14px 16px"><div class="eyebrow" style="margin-bottom:8px">Action log · undoable</div>
+              <div style="font-size:.82rem;color:var(--muted);display:flex;flex-direction:column;gap:7px">
+                <span><svg class="ic sm" viewBox="0 0 24 24" style="stroke:var(--ok);vertical-align:-2px"><use href="#i-check"/></svg> Drafted 6 posts · <span style="color:var(--tint-fg)">undo</span></span>
+                <span><svg class="ic sm" viewBox="0 0 24 24" style="stroke:var(--ok);vertical-align:-2px"><use href="#i-check"/></svg> Generated 2 covers · <span style="color:var(--tint-fg)">undo</span></span>
+                <span><svg class="ic sm" viewBox="0 0 24 24" style="stroke:var(--faint);vertical-align:-2px"><use href="#i-clock"/></svg> Queued 6 slots · awaiting approval</span>
+              </div>
+            </div>
+            <div class="card" style="padding:14px 16px"><div class="eyebrow" style="margin-bottom:8px">Trust guardrails</div>
+              <div style="font-size:.82rem;color:var(--muted);display:flex;flex-direction:column;gap:6px">
+                <span>· Never auto-publishes above "Act autonomously"</span>
+                <span>· Won't claim facts not in the brand profile</span>
+                <span>· Every step shows its reasoning</span>
+                <span>· Time-limited undo on all actions</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="annot"><b>Patterns:</b> Intent Preview before execution (target &gt;85% accept-without-edit) · Autonomy Dial from suggest→act · why-metadata per step · persistent undoable action log · cost transparency (fits BYOK) · exposed through your MCP server — the unfair advantage.</p>
+  </section>
+
+  <p class="doc-note" style="margin-top:56px;border-top:1px solid var(--line);padding-top:20px">Mockups are static and illustrative — spacing/copy are spec-level, not pixel-final. Built on the existing token system so they translate straight into <span class="mono">web/src/components/ui</span>.</p>
+</div>

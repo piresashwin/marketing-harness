@@ -7,6 +7,7 @@ import {
   draftProfile,
   draftProfileFromSource,
   refineProfileField,
+  suggestPillars,
   deriveInsights,
   generateContentPlan,
 } from "../connectors/anthropic/index.js";
@@ -14,6 +15,12 @@ import {
   fetchSiteSignal,
   siteSignalToText,
 } from "../connectors/web-extract/index.js";
+import {
+  generateImage,
+  generateVideo,
+  readGenerationJob,
+  generateVoice,
+} from "../connectors/generation.js";
 import { loadBrandDetail } from "../api/routes.js";
 import { env } from "../config/env.js";
 import { listReviewQueue, approvePost } from "../posts/review.js";
@@ -52,6 +59,37 @@ function fail(e: unknown) {
   };
 }
 
+/**
+ * Maps the generation service's enumerated errors to a safe tool error, or
+ * null when the error isn't one of them (caller falls back to fail()).
+ */
+function generationFail(e: unknown, kind: "image" | "video" | "voice") {
+  const msg = (e as Error).message;
+  if (msg === "no_provider_configured" || msg === "provider_not_configured") {
+    return {
+      isError: true,
+      content: [
+        {
+          type: "text" as const,
+          text: `Error: no ${kind} provider connected — add one in workspace settings`,
+        },
+      ],
+    };
+  }
+  if (
+    msg === "unsupported model" ||
+    msg === "unsupported voice" ||
+    msg === `${kind} provider key is invalid` ||
+    msg === `${kind} generation was declined`
+  ) {
+    return {
+      isError: true,
+      content: [{ type: "text" as const, text: `Error: ${msg}` }],
+    };
+  }
+  return null;
+}
+
 /** Ownership check mirroring REST requireBrand. Throws if the user can't access it. */
 async function assertBrandOwned(userId: number, brandId: number): Promise<void> {
   const { rowCount } = await pool.query(
@@ -76,7 +114,7 @@ const mediaShape = {
  */
 export function createMcpServer(userId: number): McpServer {
   const server = new McpServer({
-    name: "marketing-harness",
+    name: "inflxr",
     version: "0.1.0",
   });
 
@@ -556,6 +594,35 @@ export function createMcpServer(userId: number): McpServer {
   );
 
   server.registerTool(
+    "suggest_content_pillars",
+    {
+      title: "Suggest content pillars",
+      description:
+        "Suggests content pillars that complement the brand's existing set, grounded in its profile — optionally seeded by a website URL or a short note. Returns a structured list of pillars to review; it is NOT saved. Uses the workspace's BYO Claude key and spends its credits.",
+      inputSchema: {
+        brand_id: z.number().int().describe(BRAND_ID_DESC),
+        url: z.string().optional().describe("Optional: the brand's public website URL to seed suggestions"),
+        note: z.string().optional().describe("Optional: short extra context (ignored if url is given)"),
+      },
+    },
+    async ({ brand_id, url, note }) => {
+      try {
+        await assertBrandOwned(userId, brand_id);
+        let effectiveNote = note;
+        let sourceLabel: string | undefined;
+        if (url) {
+          const signal = await fetchSiteSignal(url);
+          effectiveNote = siteSignalToText(signal);
+          sourceLabel = "the brand's website";
+        }
+        return json(await suggestPillars(brand_id, { note: effectiveNote, sourceLabel }));
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.registerTool(
     "content_plan",
     {
       title: "Generate a content plan",
@@ -738,15 +805,148 @@ export function createMcpServer(userId: number): McpServer {
   );
 
   server.registerTool(
+    "generate_image",
+    {
+      title: "Generate an image",
+      description:
+        "Generates one image with the workspace's BYO image-generation key (currently fal.ai FLUX), re-hosts it to the harness media store, and returns a stable public URL you can pass directly to ig_publish_image or ig_schedule_image as `url`. " +
+        "Recipe: (1) call get_brand_profile to read the brand's visual direction and colors, (2) craft a prompt grounded in those details, (3) call this, (4) publish or schedule the returned URL. " +
+        "Uses the workspace's configured default provider unless `provider` is given; spends that provider's credits.",
+      inputSchema: {
+        brand_id: z.number().int().describe(BRAND_ID_DESC),
+        prompt: z.string().min(1).max(2000).describe("What to generate — ground it in the brand's visual direction"),
+        size: z
+          .enum(["square", "portrait", "landscape"])
+          .optional()
+          .describe("Output shape; square (default) and portrait suit Instagram feed"),
+        provider: z
+          .enum(["fal"])
+          .optional()
+          .describe("Override the workspace's default image provider"),
+        model: z
+          .string()
+          .max(120)
+          .optional()
+          .describe("Provider model id, e.g. fal-ai/flux/dev, fal-ai/flux/schnell, fal-ai/flux-pro/v1.1"),
+      },
+    },
+    async ({ brand_id, prompt, size, provider, model }) => {
+      try {
+        await assertBrandOwned(userId, brand_id);
+        return json(await generateImage(brand_id, { prompt, size, provider, model }));
+      } catch (e) {
+        return generationFail(e, "image") ?? fail(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "generate_video",
+    {
+      title: "Generate a video (async)",
+      description:
+        "Submits a text-to-video generation with the workspace's BYO video key (currently fal.ai Kling) and returns a pending job immediately — video takes 1-6 minutes. Poll generation_status with the returned job id until status is 'completed', then pass its url onward. Defaults: 5 seconds, 9:16 (Reels). Providers bill per second of video — keep clips short. Spends the workspace's provider credits.",
+      inputSchema: {
+        brand_id: z.number().int().describe(BRAND_ID_DESC),
+        prompt: z.string().min(1).max(2000).describe("What to generate — ground it in the brand's visual direction"),
+        aspect: z.enum(["9:16", "16:9", "1:1"]).optional().describe("9:16 (default) suits Reels"),
+        duration_seconds: z
+          .union([z.literal(5), z.literal(10)])
+          .optional()
+          .describe("Clip length; 5 (default) or 10"),
+        provider: z.enum(["fal"]).optional().describe("Override the workspace's default video provider"),
+        model: z
+          .string()
+          .max(160)
+          .optional()
+          .describe("Provider model id, e.g. fal-ai/kling-video/v2.5-turbo/pro/text-to-video or fal-ai/kling-video/v3/standard/text-to-video"),
+      },
+    },
+    async ({ brand_id, prompt, aspect, duration_seconds, provider, model }) => {
+      try {
+        await assertBrandOwned(userId, brand_id);
+        return json({
+          job: await generateVideo(brand_id, {
+            prompt,
+            aspect,
+            durationSeconds: duration_seconds,
+            provider,
+            model,
+          }),
+        });
+      } catch (e) {
+        return generationFail(e, "video") ?? fail(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "generation_status",
+    {
+      title: "Check a generation job",
+      description:
+        "Reads an async generation job (from generate_video). Polls the provider live while pending; when completed, the job's url is the stable harness-hosted media URL.",
+      inputSchema: {
+        brand_id: z.number().int().describe(BRAND_ID_DESC),
+        job_id: z.number().int().describe("Job id returned by generate_video"),
+      },
+    },
+    async ({ brand_id, job_id }) => {
+      try {
+        await assertBrandOwned(userId, brand_id);
+        return json({ job: await readGenerationJob(brand_id, job_id) });
+      } catch (e) {
+        if ((e as Error).message === "job not found") {
+          return {
+            isError: true,
+            content: [{ type: "text" as const, text: "Error: job not found" }],
+          };
+        }
+        return generationFail(e, "video") ?? fail(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "generate_voice",
+    {
+      title: "Generate voiceover audio",
+      description:
+        "Generates speech (MP3) from text with the workspace's BYO voice key (currently ElevenLabs), stores it to the harness media store, and returns a public URL. Voice audio is an INPUT asset — pair it with a video or slideshow; it cannot be published to Instagram directly. Bills per character; keep the text tight. Spends the workspace's provider credits.",
+      inputSchema: {
+        brand_id: z.number().int().describe(BRAND_ID_DESC),
+        text: z.string().min(1).max(2500).describe("The script to speak, in the brand's voice"),
+        voice_id: z.string().max(60).optional().describe("ElevenLabs voice id; defaults to a natural premade voice"),
+        provider: z.enum(["elevenlabs"]).optional().describe("Override the workspace's default voice provider"),
+        model: z
+          .string()
+          .max(60)
+          .optional()
+          .describe("Provider model id, e.g. eleven_multilingual_v2 (default), eleven_flash_v2_5, eleven_v3"),
+      },
+    },
+    async ({ brand_id, text, voice_id, provider, model }) => {
+      try {
+        await assertBrandOwned(userId, brand_id);
+        return json(
+          await generateVoice(brand_id, { text, voiceId: voice_id, provider, model }),
+        );
+      } catch (e) {
+        return generationFail(e, "voice") ?? fail(e);
+      }
+    },
+  );
+
+  server.registerTool(
     "harness_info",
     {
-      title: "Harness info",
+      title: "Inflxr info",
       description: "Lists connectors and their configuration/capability status.",
       inputSchema: {},
     },
     async () =>
       json({
-        name: "marketing-harness",
+        name: "inflxr",
         version: "0.1.0",
         publicBaseUrl: env.publicBaseUrl,
         connectors: [

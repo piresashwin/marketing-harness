@@ -49,7 +49,7 @@ async function main() {
       issuerUrl: new URL(env.publicBaseUrl),
       resourceServerUrl: mcpResourceUrl,
       scopesSupported: ["mcp"],
-      resourceName: "marketing-harness",
+      resourceName: "inflxr",
     }),
   );
 
@@ -112,7 +112,7 @@ async function main() {
   }
 
   app.listen(env.port, () => {
-    console.log(`\n  marketing-harness listening on ${env.publicBaseUrl}`);
+    console.log(`\n  inflxr listening on ${env.publicBaseUrl}`);
     console.log(`  • Web UI (dev):     ${env.appBaseUrl}`);
     console.log(`  • MCP endpoint:     POST ${env.publicBaseUrl}/mcp`);
     console.log(`  • Media store:      ${mediaStore.kind}`);

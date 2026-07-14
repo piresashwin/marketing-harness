@@ -9,7 +9,30 @@ export interface Brand {
   slug: string;
 }
 
-export type WorkspaceProvider = "anthropic" | "higgsfield";
+export type WorkspaceProvider = "anthropic" | "higgsfield" | "fal" | "elevenlabs";
+
+export type GenerationCapability = "image" | "video" | "voice";
+
+export interface GenerationDefault {
+  provider: WorkspaceProvider;
+  model?: string;
+}
+
+/** Per-capability generation defaults. */
+export type GenerationDefaults = Partial<
+  Record<GenerationCapability, GenerationDefault>
+>;
+
+/** An async media-generation job (video). */
+export interface GenerationJob {
+  id: string;
+  capability: GenerationCapability;
+  provider: string;
+  model: string;
+  status: "pending" | "completed" | "failed";
+  url: string | null;
+  createdAt: string;
+}
 
 export interface WorkspaceConnector {
   provider: WorkspaceProvider;
@@ -79,6 +102,13 @@ export interface Pillar {
   description: string | null;
   ratio: number | null;
   sortOrder: number | null;
+}
+
+/** An AI-suggested pillar — not persisted until merged and saved. */
+export interface SuggestedPillar {
+  name: string;
+  description: string;
+  ratio?: number;
 }
 
 export interface BrandDetail {
@@ -511,7 +541,8 @@ export const api = {
     ),
   igPublish: (
     brandId: string,
-    payload: { caption?: string; imageBase64: string; contentType: string },
+    // Exactly one of imageBase64 (upload) / imageUrl (e.g. AI-generated).
+    payload: { caption?: string; imageBase64?: string; imageUrl?: string; contentType?: string },
   ) =>
     request<{ providerMediaId: string; permalink?: string }>(
       `/api/brands/${brandId}/connectors/instagram/publish`,
@@ -521,7 +552,7 @@ export const api = {
   // ── Instagram scheduling (brand-scoped) ─────────────────────────────
   igSchedule: (
     brandId: string,
-    payload: { caption?: string; imageBase64: string; contentType: string; scheduledAt: string },
+    payload: { caption?: string; imageBase64?: string; imageUrl?: string; contentType?: string; scheduledAt: string },
   ) =>
     request<{ id: number | string }>(
       `/api/brands/${brandId}/connectors/instagram/schedule`,
@@ -717,6 +748,15 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  /** Suggest content pillars from the profile, a website, or a short note (not persisted). */
+  suggestPillars: (brandId: string, body: { url?: string; note?: string }) =>
+    request<{ pillars: SuggestedPillar[] }>(
+      `/api/brands/${brandId}/ai/pillars/suggest`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+    ),
 
   // ── Goal-driven mode (brand-scoped) ──────────────────────────────────
   /** State an outcome; the AI proposes an approvable Intent Preview. */
@@ -774,7 +814,7 @@ export const api = {
   promoteDraft: (
     brandId: string,
     postId: string,
-    payload: { caption?: string; imageBase64: string; contentType: string; scheduledAt: string },
+    payload: { caption?: string; imageBase64?: string; imageUrl?: string; contentType?: string; scheduledAt: string },
   ) =>
     request<{ ok: boolean }>(`/api/brands/${brandId}/goals/drafts/${postId}/promote`, {
       method: "PATCH",
@@ -837,6 +877,66 @@ export const api = {
     request<{ ok: boolean }>(
       `/api/workspaces/${workspaceId}/connectors/${provider}`,
       { method: "DELETE" },
+    ),
+  getGenerationDefaults: (workspaceId: string) =>
+    request<{ defaults: GenerationDefaults }>(
+      `/api/workspaces/${workspaceId}/generation-defaults`,
+    ),
+  /** value: null clears the default back to auto-resolution. */
+  setGenerationDefault: (
+    workspaceId: string,
+    capability: GenerationCapability,
+    value: GenerationDefault | null,
+  ) =>
+    request<{ defaults: GenerationDefaults }>(
+      `/api/workspaces/${workspaceId}/generation-defaults/${capability}`,
+      { method: "PUT", body: JSON.stringify({ value }) },
+    ),
+  /** Generate an image via the workspace's image provider (spends its credits). */
+  aiImage: (
+    brandId: string,
+    input: {
+      prompt: string;
+      size?: "square" | "portrait" | "landscape";
+      provider?: WorkspaceProvider;
+      model?: string;
+    },
+  ) =>
+    request<{ url: string; provider: string; model: string }>(
+      `/api/brands/${brandId}/ai/image`,
+      { method: "POST", body: JSON.stringify(input) },
+    ),
+  /** Submit an async video generation; poll aiJob until completed. */
+  aiVideo: (
+    brandId: string,
+    input: {
+      prompt: string;
+      aspect?: "9:16" | "16:9" | "1:1";
+      durationSeconds?: 5 | 10;
+      provider?: WorkspaceProvider;
+      model?: string;
+    },
+  ) =>
+    request<{ job: GenerationJob }>(`/api/brands/${brandId}/ai/video`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  /** Read an async generation job (polls the provider while pending). */
+  aiJob: (brandId: string, jobId: string) =>
+    request<{ job: GenerationJob }>(`/api/brands/${brandId}/ai/jobs/${jobId}`),
+  /** Generate voiceover audio (MP3) via the workspace's voice provider. */
+  aiVoice: (
+    brandId: string,
+    input: {
+      text: string;
+      voiceId?: string;
+      provider?: WorkspaceProvider;
+      model?: string;
+    },
+  ) =>
+    request<{ url: string; provider: string; model: string; voiceId: string }>(
+      `/api/brands/${brandId}/ai/voice`,
+      { method: "POST", body: JSON.stringify(input) },
     ),
 
   // ── Account / compliance ────────────────────────────────────────────

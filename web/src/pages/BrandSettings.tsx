@@ -19,6 +19,7 @@ import {
   type PlatformKey,
   type PlatformSetting,
   type ProfileField,
+  type SuggestedPillar,
 } from "../api";
 import { useAuth } from "../auth";
 import { useBrand } from "../brand";
@@ -34,6 +35,9 @@ import {
   Field,
   FullScreenDialog,
   Input,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
   Textarea,
 } from "../components/ui";
 import {
@@ -43,6 +47,7 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  FileText,
   Globe,
   Loader2,
   PenLine,
@@ -308,6 +313,15 @@ function ProfileEditor({
   const [showHero, setShowHero] = useState(startedEmpty);
   const [step, setStep] = useState(0);
 
+  // Live emptiness — drives the re-draft callout and the overwrite warning
+  // when the hero is reopened over a profile that already has answers.
+  const profileBlank =
+    !why.trim() &&
+    !description.trim() &&
+    !audience.trim() &&
+    pillars.length === 0 &&
+    tones.length === 0;
+
   // ── autosave: settings ──
   const settingsPayload = useMemo(() => {
     const voice: BrandVoice = {
@@ -454,6 +468,7 @@ function ProfileEditor({
             initialSeed={initialSeed}
             initialSourceUrl={initialSourceUrl}
             autoStart={onboarding}
+            warnOverwrite={!profileBlank}
           />
         </div>
       ) : (
@@ -476,6 +491,22 @@ function ProfileEditor({
           <Reveal key={step} className="mt-12">
             {step === 0 && (
               <>
+                {!profileBlank && (
+                  <div className="mb-8 flex items-center justify-between gap-3 rounded-xl border border-accent-line bg-accent-soft px-4 py-3">
+                    <span className="flex items-center gap-2.5 text-sm text-accent-soft-fg">
+                      <Sparkles className="h-4 w-4 shrink-0" />
+                      Want a fresh take? Draft this profile from your website, a
+                      sentence, or Instagram.
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowHero(true)}
+                      className="shrink-0 text-sm font-semibold text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-brand-100"
+                    >
+                      Draft with AI →
+                    </button>
+                  </div>
+                )}
                 <StepHeader
                   roman="i"
                   eyebrow="Why"
@@ -621,7 +652,12 @@ function ProfileEditor({
                   </div>
 
                   <div>
-                    <PillarsEditor rows={pillars} onChange={setPillars} />
+                    <PillarsEditor
+                      rows={pillars}
+                      onChange={setPillars}
+                      brandId={brandId}
+                      aiReady={aiReady}
+                    />
                   </div>
                 </div>
               </>
@@ -737,6 +773,7 @@ function DraftHero({
   initialSeed,
   initialSourceUrl,
   autoStart = false,
+  warnOverwrite = false,
 }: {
   brandId: string;
   aiReady: boolean;
@@ -745,6 +782,8 @@ function DraftHero({
   initialSeed?: string;
   initialSourceUrl?: string;
   autoStart?: boolean;
+  /** Reopened over a filled profile — drafting will replace existing answers. */
+  warnOverwrite?: boolean;
 }) {
   const [source, setSource] = useState<DraftSource>(
     initialSourceUrl ? "website" : "sentence",
@@ -827,6 +866,13 @@ function DraftHero({
         Pull it from your website or Instagram, or describe it in a sentence —
         we'll draft a full profile for you to shape.
       </p>
+
+      {warnOverwrite && (
+        <p className="mx-auto mt-4 max-w-md rounded-xl border border-amber-300/60 bg-amber-50 px-4 py-2.5 text-sm text-amber-800 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-200">
+          Applying a draft replaces your current answers for the fields it
+          fills.
+        </p>
+      )}
 
       <div className="mt-8 inline-flex rounded-xl border border-line bg-surface p-1">
         {TABS.map((t) => {
@@ -932,9 +978,9 @@ function DraftHero({
       )}
 
       <p className="mt-6 text-sm text-muted">
-        Prefer to start from scratch?{" "}
+        {warnOverwrite ? "Keep what you have?" : "Prefer to start from scratch?"}{" "}
         <button onClick={onSkip} className="font-semibold text-accent hover:underline">
-          Fill it in myself →
+          {warnOverwrite ? "Back to editing →" : "Fill it in myself →"}
         </button>
       </p>
     </div>
@@ -1200,12 +1246,189 @@ function ratioSum(rows: DraftPillar[]): number {
   }, 0);
 }
 
-function PillarsEditor({
+/** Merge AI-suggested pillars into the existing draft rows: dedupe by
+ * case-insensitive trimmed name, cap the total at 12. */
+function mergeSuggestedPillars(
+  rows: DraftPillar[],
+  suggested: SuggestedPillar[],
+): DraftPillar[] {
+  const seen = new Set(
+    rows.map((r) => r.name.trim().toLowerCase()).filter(Boolean),
+  );
+  const merged = [...rows];
+  for (const p of suggested) {
+    if (merged.length >= 12) break;
+    const key = p.name.trim().toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    merged.push({
+      key: `new${pillarKeySeq++}`,
+      name: p.name,
+      description: p.description ?? "",
+      ratio: p.ratio == null ? "" : String(p.ratio),
+    });
+  }
+  return merged;
+}
+
+type SuggestSource = "profile" | "website" | "note";
+const SUGGEST_TABS: { key: SuggestSource; label: string; icon: typeof Globe }[] = [
+  { key: "profile", label: "From profile", icon: FileText },
+  { key: "website", label: "From website", icon: Globe },
+  { key: "note", label: "From a description", icon: PenLine },
+];
+
+function SuggestPillarsButton({
+  brandId,
+  aiReady,
+  full,
   rows,
   onChange,
 }: {
+  brandId: string;
+  aiReady: boolean;
+  full: boolean;
   rows: DraftPillar[];
   onChange: (r: DraftPillar[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [source, setSource] = useState<SuggestSource>("profile");
+  const [url, setUrl] = useState("");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const run = async (body: { url?: string; note?: string }) => {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const { pillars } = await api.suggestPillars(brandId, body);
+      onChange(mergeSuggestedPillars(rows, pillars));
+      setOpen(false);
+    } catch (e) {
+      setError((e as Error).message || "Couldn't suggest pillars.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (!o) setError("");
+      }}
+    >
+      <PopoverTrigger asChild>
+        <Button variant="secondary" size="sm" disabled={!aiReady || full}>
+          <Sparkles className="h-4 w-4" /> Suggest with AI
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-80">
+        <div className="inline-flex rounded-lg border border-line bg-surface p-0.5">
+          {SUGGEST_TABS.map((t) => {
+            const Icon = t.icon;
+            const active = source === t.key;
+            return (
+              <button
+                key={t.key}
+                type="button"
+                onClick={() => {
+                  setSource(t.key);
+                  setError("");
+                }}
+                aria-pressed={active}
+                className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-brand-100 ${
+                  active ? "bg-accent-soft text-accent" : "text-muted hover:text-ink"
+                }`}
+              >
+                <Icon className="h-3.5 w-3.5" />
+                {t.label}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="mt-3">
+          {source === "profile" && (
+            <div>
+              <p className="text-sm text-muted">
+                Generate pillars from the brand profile you've already written.
+              </p>
+              <div className="mt-3 flex justify-end">
+                <Button size="sm" onClick={() => void run({})} disabled={busy}>
+                  {busy ? <Spinner /> : <Sparkles className="h-4 w-4" />}
+                  {busy ? "Suggesting…" : "Suggest"}
+                </Button>
+              </div>
+            </div>
+          )}
+          {source === "website" && (
+            <div>
+              <Input
+                type="url"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                placeholder="yourbrand.com"
+                onKeyDown={(e) =>
+                  e.key === "Enter" && !busy && url.trim() && void run({ url: url.trim() })
+                }
+              />
+              <div className="mt-2 flex justify-end">
+                <Button
+                  size="sm"
+                  onClick={() => void run({ url: url.trim() })}
+                  disabled={busy || !url.trim()}
+                >
+                  {busy ? <Spinner /> : <Sparkles className="h-4 w-4" />}
+                  {busy ? "Reading your site…" : "Suggest"}
+                </Button>
+              </div>
+            </div>
+          )}
+          {source === "note" && (
+            <div>
+              <Textarea
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                rows={3}
+                placeholder="Describe the kinds of content you want to post…"
+              />
+              <div className="mt-2 flex justify-end">
+                <Button
+                  size="sm"
+                  onClick={() => void run({ note: note.trim() })}
+                  disabled={busy || !note.trim()}
+                >
+                  {busy ? <Spinner /> : <Sparkles className="h-4 w-4" />}
+                  {busy ? "Suggesting…" : "Suggest"}
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+        {!aiReady && (
+          <p className="mt-2 text-xs text-faint">Connect Claude in Settings to use AI suggestions.</p>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function PillarsEditor({
+  rows,
+  onChange,
+  brandId,
+  aiReady,
+}: {
+  rows: DraftPillar[];
+  onChange: (r: DraftPillar[]) => void;
+  brandId: string;
+  aiReady: boolean;
 }) {
   const update = (key: string, patch: Partial<DraftPillar>) =>
     onChange(rows.map((r) => (r.key === key ? { ...r, ...patch } : r)));
@@ -1262,16 +1485,25 @@ function PillarsEditor({
             </div>
           </div>
         ))}
-        <Button
-          variant="secondary"
-          size="sm"
-          disabled={rows.length >= 12}
-          onClick={() =>
-            onChange([...rows, { key: `new${pillarKeySeq++}`, name: "", description: "", ratio: "" }])
-          }
-        >
-          <Plus className="h-4 w-4" /> Add pillar
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={rows.length >= 12}
+            onClick={() =>
+              onChange([...rows, { key: `new${pillarKeySeq++}`, name: "", description: "", ratio: "" }])
+            }
+          >
+            <Plus className="h-4 w-4" /> Add pillar
+          </Button>
+          <SuggestPillarsButton
+            brandId={brandId}
+            aiReady={aiReady}
+            full={rows.length >= 12}
+            rows={rows}
+            onChange={onChange}
+          />
+        </div>
       </div>
     </div>
   );

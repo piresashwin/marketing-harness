@@ -3,7 +3,7 @@ import { env } from "../config/env.js";
 function emailHtml(link: string): string {
   return `
   <div style="font-family:system-ui,Segoe UI,Helvetica,Arial,sans-serif;max-width:440px;margin:0 auto;padding:32px">
-    <h2 style="margin:0 0 8px">Sign in to Marketing Harness</h2>
+    <h2 style="margin:0 0 8px">Sign in to Inflxr</h2>
     <p style="color:#475569;margin:0 0 24px">Click the button below to sign in. This link expires in 15 minutes.</p>
     <a href="${link}" style="display:inline-block;background:#4f46e5;color:#fff;text-decoration:none;padding:12px 20px;border-radius:10px;font-weight:600">Sign in</a>
     <p style="color:#94a3b8;font-size:13px;margin:24px 0 0">If you didn't request this, you can ignore this email.</p>

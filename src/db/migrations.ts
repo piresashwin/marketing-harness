@@ -466,4 +466,45 @@ export const MIGRATIONS: Migration[] = [
       ALTER TABLE posts ADD COLUMN IF NOT EXISTS goal_run_id bigint REFERENCES goal_runs(id) ON DELETE SET NULL;
     `,
   },
+  {
+    id: 17,
+    name: "workspace_settings",
+    sql: `
+      -- Workspace preferences that aren't connector secrets/config.
+      -- generation_defaults: which provider (and optional model) handles each
+      -- generation capability, e.g. {"image":{"provider":"fal","model":"fal-ai/flux/dev"}}.
+      -- Capabilities: 'image' now; 'video' / 'voice' when those connectors land.
+      CREATE TABLE IF NOT EXISTS workspace_settings (
+        workspace_id        bigint PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
+        generation_defaults jsonb NOT NULL DEFAULT '{}'::jsonb,
+        updated_at          timestamptz NOT NULL DEFAULT now()
+      );
+    `,
+  },
+  {
+    id: 18,
+    name: "generation_jobs",
+    sql: `
+      -- Async media-generation jobs (video takes 1-6 min, so it can't be a
+      -- blocking request). Submitted to the provider's queue; polled on demand
+      -- by the status read (no background worker). meta holds provider polling
+      -- state (request id + status/response URLs) — no secrets, no prompts.
+      -- status: 'pending' | 'completed' | 'failed'.
+      CREATE TABLE IF NOT EXISTS generation_jobs (
+        id          bigserial PRIMARY KEY,
+        brand_id    bigint NOT NULL REFERENCES brands(id) ON DELETE CASCADE,
+        capability  text NOT NULL,
+        provider    text NOT NULL,
+        model       text NOT NULL,
+        status      text NOT NULL DEFAULT 'pending',
+        meta        jsonb NOT NULL DEFAULT '{}'::jsonb,
+        result_url  text,
+        error       text,
+        created_at  timestamptz NOT NULL DEFAULT now(),
+        updated_at  timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS generation_jobs_brand_idx
+        ON generation_jobs(brand_id, status);
+    `,
+  },
 ];

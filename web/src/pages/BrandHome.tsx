@@ -239,7 +239,7 @@ function SetupChecklist({
         <div>
           <h2 className="font-medium text-ink">Set up your loop</h2>
           <p className="mt-0.5 text-sm text-muted">
-            Four steps and the harness can plan, draft and publish for you.
+            Four steps and Inflxr can plan, draft and publish for you.
           </p>
         </div>
         <span className="rounded-full bg-hover px-2.5 py-1 text-xs font-semibold tabular-nums text-muted">
@@ -293,7 +293,7 @@ function SetupChecklist({
           detail={
             checklist.instagram
               ? `Connected as @${igUsername ?? "—"}.`
-              : "Publish straight from Harness."
+              : "Publish straight from Inflxr."
           }
           to="/settings"
           state={{ section: "instagram" }}
